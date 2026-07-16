@@ -3,9 +3,7 @@
 ## Team Members
 - [Name 1]
 - [Wiseman Umanah](https://github.com/wiseman-umanah)
-- [Name 3]
-- [Name 4]
-- [Name 5]
+- [Akwaubok Emeh](https://github.com/AHKAYY007)
 
 ---
 
