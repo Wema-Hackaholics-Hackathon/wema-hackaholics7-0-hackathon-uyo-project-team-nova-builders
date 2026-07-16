@@ -1,8 +1,8 @@
-# [Project Title]
+# FOID — Fintech Open Identity
 
 ## Team Members
 - [Name 1]
-- [Name 2]
+- [Wiseman Umanah](https://github.com/wiseman-umanah)
 - [Name 3]
 - [Name 4]
 - [Name 5]
@@ -20,16 +20,12 @@
 
 ## 🎯 The Problem
 
-*Which "How Might We..." question from the challenge brief are you tackling? Show the format by providing an example below.*
+How might we help financial institutions turn a one-time Open Banking connection into an ongoing, automatically trustworthy relationship with their customers — instead of a snapshot that goes stale the moment it's checked?
 
-> **Example:** How might we help busy people organize their daily tasks more effectively?
 
 ## ✨ Our Solution
 
-*Provide a short, high-level description of your project. What is your unique idea? What does it do? How does it solve the problem?*
-
-**Example:**
-"Our project, 'TaskMaster,' is a clean and simple to-do list application. It allows users to add tasks, mark them as complete, and sort them by priority. The goal is to provide a straightforward tool to help users stay organized."
+Our project, 'FOID' (Fintech Open Identity), is a reusable financial identity layer built on Open Banking data. A user verifies their identity once, and FOID keeps watching their real account activity afterward — automatically updating their financial trust credential the moment their behavior changes, with no manual re-check needed. Institutions like Wema can instantly see a person's current, verified status and reuse it across every product, instead of re-running KYC and credit checks from scratch each time.
 
 ---
 
