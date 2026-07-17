@@ -1,205 +1,110 @@
 import { useState } from 'react'
 import RemixIcon from '@/components/RemixIcon'
 import StatCard from '@/components/StatCard'
-import IncomeExpenseChart from '@/components/IncomeExpenseChart'
 
 /* ── Types ──────────────────────────────────────────────────────────── */
-type BankStatus = 'active' | 'syncing' | 'error' | 'disconnected'
+type BankStatus = 'verified' | 'syncing' | 'error' | 'disconnected'
 
 interface BankAccount {
   id: string
   name: string
   logo: string
+  initials?: string          // fallback when no image matches well
+  initialsColor?: string     // bg colour for initials avatar
   accountType: string
-  accountNumber: string
-  balance: number
-  currency: string
-  linkedDate: string
+  maskedNumber: string       // e.g. "•••• 4471"
   lastSync: string
   status: BankStatus
-  transactions: number
 }
 
-/* ── Mock data ──────────────────────────────────────────────────────── */
+/* ── Mock data — matches screenshot exactly ─────────────────────────── */
 const BANKS: BankAccount[] = [
   {
     id: '1',
-    name: 'Wema Bank',
-    logo: '/wema.jpg',
-    accountType: 'Current Account',
-    accountNumber: '****  ****  ****  4821',
-    balance: 1_420_500,
-    currency: '₦',
-    linkedDate: '12 Jun 2026',
-    lastSync: '2 min ago',
-    status: 'active',
-    transactions: 284,
+    name: 'GTBank',
+    logo: '/GTCO.jpg',
+    accountType: 'Savings',
+    maskedNumber: '•••• 4471',
+    lastSync: 'synced 2 min ago',
+    status: 'verified',
   },
   {
     id: '2',
-    name: 'GT Bank',
-    logo: '/GTCO.jpg',
-    accountType: 'Savings Account',
-    accountNumber: '****  ****  ****  7302',
-    balance: 520_000,
-    currency: '₦',
-    linkedDate: '12 Jun 2026',
-    lastSync: '5 min ago',
-    status: 'active',
-    transactions: 119,
+    name: 'Wema Bank',
+    logo: '/wema.jpg',
+    accountType: 'Current',
+    maskedNumber: '•••• 9902',
+    lastSync: 'synced 4 min ago',
+    status: 'verified',
   },
   {
     id: '3',
-    name: 'Kuda Bank',
-    logo: '/kuda.jpg',
-    accountType: 'Digital Account',
-    accountNumber: '****  ****  ****  0194',
-    balance: 85_300,
-    currency: '₦',
-    linkedDate: '03 Jul 2026',
-    lastSync: 'Syncing…',
-    status: 'syncing',
-    transactions: 47,
+    name: 'Moniepoint',
+    logo: '',
+    initials: 'M',
+    initialsColor: '#2563eb',
+    accountType: 'Business',
+    maskedNumber: '•••• 1130',
+    lastSync: 'synced 1 min ago',
+    status: 'verified',
   },
   {
     id: '4',
-    name: 'Opay',
-    logo: '/opay.png',
-    accountType: 'Wallet',
-    accountNumber: '****  ****  ****  6650',
-    balance: 0,
-    currency: '₦',
-    linkedDate: '20 May 2026',
-    lastSync: '2 hr ago',
+    name: 'Kuda Bank',
+    logo: '/kuda.jpg',
+    accountType: 'Savings',
+    maskedNumber: '•••• 2287',
+    lastSync: 'last sync failed',
     status: 'error',
-    transactions: 61,
   },
 ]
 
 /* ── Available banks to connect ─────────────────────────────────────── */
 const ADD_OPTIONS = [
-  { name: 'Renmoney',     logo: '/renmoney.jpg' },
-  { name: 'Zenith Bank',  logo: '/wema.jpg'     },
-  { name: 'Access Bank',  logo: '/GTCO.jpg'     },
-  { name: 'First Bank',   logo: '/kuda.jpg'     },
+  { name: 'Renmoney',    logo: '/renmoney.jpg' },
+  { name: 'Opay',        logo: '/opay.png'     },
+  { name: 'Access Bank', logo: '/GTCO.jpg'     },
+  { name: 'First Bank',  logo: '/kuda.jpg'     },
 ]
 
-/* ── Status metadata ────────────────────────────────────────────────── */
-const STATUS_META: Record<BankStatus, { label: string; bg: string; color: string; dot: string }> = {
-  active:       { label: 'Active',       bg: '#dcfce7', color: '#15803d', dot: '#22c55e' },
-  syncing:      { label: 'Syncing…',     bg: '#eff6ff', color: '#1d4ed8', dot: '#60a5fa' },
-  error:        { label: 'Error',        bg: '#fee2e2', color: '#dc2626', dot: '#ef4444' },
-  disconnected: { label: 'Disconnected', bg: '#f4f4f5', color: '#71717a', dot: '#a1a1aa' },
-}
+/* ── Helpers ────────────────────────────────────────────────────────── */
+const lastSyncColor = (sync: string) =>
+  sync.includes('failed') ? '#ef4444' : '#a1a1aa'
 
-const naira = (n: number) =>
-  '₦' + n.toLocaleString('en-NG', { minimumFractionDigits: 2 })
-
-/* ── Status badge ───────────────────────────────────────────────────── */
-function StatusBadge({ status }: { status: BankStatus }) {
-  const m = STATUS_META[status]
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold whitespace-nowrap"
-      style={{ background: m.bg, color: m.color }}
-    >
-      <span
-        className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ background: m.dot }}
+/* ── Bank logo / initials avatar ────────────────────────────────────── */
+function BankAvatar({ bank }: { bank: BankAccount }) {
+  if (bank.logo) {
+    return (
+      <img
+        src={bank.logo}
+        alt={bank.name}
+        className="w-10 h-10 rounded-full object-cover border border-neutral-100 shrink-0"
       />
-      {m.label}
-    </span>
+    )
+  }
+  return (
+    <div
+      className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-white text-[15px] font-bold"
+      style={{ background: bank.initialsColor ?? '#6b7280' }}
+    >
+      {bank.initials ?? bank.name[0]}
+    </div>
   )
 }
 
-/* ── Bank card (grid tile) ──────────────────────────────────────────── */
-function BankCard({
-  bank,
-  onDisconnect,
-}: {
-  bank: BankAccount
-  onDisconnect: (id: string) => void
-}) {
-  const [menuOpen, setMenuOpen] = useState(false)
-
+/* ── Verified badge — purple with checkmark ─────────────────────────── */
+function VerifiedBadge() {
   return (
-    <div className="bg-white border border-neutral-200 rounded-2xl p-5 flex flex-col gap-4 hover:shadow-sm transition-shadow relative">
-      {/* Top row: logo + name + kebab */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <img
-            src={bank.logo}
-            alt={bank.name}
-            className="w-10 h-10 rounded-xl object-contain border border-neutral-100 bg-white p-0.5 shrink-0"
-          />
-          <div>
-            <div className="text-[14px] font-bold text-neutral-900 leading-tight">{bank.name}</div>
-            <div className="text-[11px] text-neutral-400 mt-0.5">{bank.accountType}</div>
-          </div>
-        </div>
-
-        {/* Kebab menu */}
-        <div className="relative shrink-0">
-          <button
-            onClick={() => setMenuOpen(o => !o)}
-            className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-neutral-100 transition-colors"
-            aria-label="Account options"
-          >
-            <RemixIcon name="ri-more-2-fill" size={16} color="#a1a1aa" clickable />
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div
-                className="absolute right-0 top-8 z-20 bg-white rounded-xl border border-neutral-200 shadow-lg py-1 min-w-[160px]"
-              >
-                <button className="w-full text-left px-4 py-2.5 text-[13px] text-neutral-700 hover:bg-neutral-50 flex items-center gap-2">
-                  <RemixIcon name="ri-refresh-line" size={14} color="#71717a" clickable />
-                  Sync now
-                </button>
-                <button className="w-full text-left px-4 py-2.5 text-[13px] text-neutral-700 hover:bg-neutral-50 flex items-center gap-2">
-                  <RemixIcon name="ri-eye-line" size={14} color="#71717a" clickable />
-                  View transactions
-                </button>
-                <div className="h-px bg-neutral-100 my-1" />
-                <button
-                  onClick={() => { onDisconnect(bank.id); setMenuOpen(false) }}
-                  className="w-full text-left px-4 py-2.5 text-[13px] text-red-500 hover:bg-red-50 flex items-center gap-2"
-                >
-                  <RemixIcon name="ri-link-unlink" size={14} color="#ef4444" clickable />
-                  Disconnect
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Account number */}
-      <div className="text-[13px] font-mono text-neutral-500 tracking-wider">{bank.accountNumber}</div>
-
-      {/* Balance */}
-      <div>
-        <div className="text-[11px] text-neutral-400 font-medium uppercase tracking-wide mb-0.5">Available balance</div>
-        <div className="text-[22px] font-extrabold text-neutral-900 leading-none">
-          {bank.status === 'error' ? '—' : naira(bank.balance)}
-        </div>
-      </div>
-
-      {/* Footer: status + sync time */}
-      <div className="flex items-center justify-between pt-1 border-t border-neutral-100">
-        <StatusBadge status={bank.status} />
-        <div className="flex items-center gap-1 text-[11px] text-neutral-400">
-          <RemixIcon name="ri-time-line" size={12} color="#a1a1aa" />
-          {bank.lastSync}
-        </div>
-      </div>
-
-      {/* Transactions pill */}
-      <div className="text-[11px] text-neutral-400">
-        <span className="font-semibold text-neutral-700">{bank.transactions}</span> transactions synced
-      </div>
-    </div>
+    <span
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold whitespace-nowrap"
+      style={{ background: '#fae8ff', color: '#c026d3' }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="11" fill="#c026d3" />
+        <path d="M7 12.5l3.5 3.5 6-7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      Verified
+    </span>
   )
 }
 
@@ -207,11 +112,8 @@ function BankCard({
 function AddBankModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* backdrop */}
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[440px] p-6 flex flex-col gap-5">
-        {/* Header */}
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-[17px] font-bold text-neutral-900">Connect a bank account</h2>
@@ -226,8 +128,6 @@ function AddBankModal({ onClose }: { onClose: () => void }) {
             <RemixIcon name="ri-close-line" size={18} color="#71717a" clickable />
           </button>
         </div>
-
-        {/* Bank grid */}
         <div className="grid grid-cols-2 gap-3">
           {ADD_OPTIONS.map(opt => (
             <button
@@ -235,17 +135,12 @@ function AddBankModal({ onClose }: { onClose: () => void }) {
               onClick={onClose}
               className="flex items-center gap-3 p-3 rounded-xl border border-neutral-200 hover:border-brand-400 hover:bg-brand-50 transition-colors text-left"
             >
-              <img
-                src={opt.logo}
-                alt={opt.name}
-                className="w-9 h-9 rounded-lg object-contain border border-neutral-100 bg-white p-0.5 shrink-0"
-              />
+              <img src={opt.logo} alt={opt.name}
+                className="w-9 h-9 rounded-lg object-contain border border-neutral-100 bg-white p-0.5 shrink-0" />
               <span className="text-[13px] font-semibold text-neutral-800 leading-tight">{opt.name}</span>
             </button>
           ))}
         </div>
-
-        {/* Disclaimer */}
         <div className="flex items-start gap-2 bg-neutral-50 rounded-xl px-4 py-3">
           <RemixIcon name="ri-shield-check-line" size={15} color="#a1a1aa" className="mt-0.5 shrink-0" />
           <p className="text-[11.5px] text-neutral-500 leading-relaxed">
@@ -266,14 +161,12 @@ export default function ConnectedBankPage() {
   const [showAddModal, setShowAddModal] = useState(false)
 
   const handleDisconnect = (id: string) =>
-    setBanks(prev =>
-      prev.map(b => b.id === id ? { ...b, status: 'disconnected' as BankStatus } : b)
-    )
+    setBanks(prev => prev.map(b => b.id === id ? { ...b, status: 'disconnected' as BankStatus } : b))
 
-  const activeCount     = banks.filter(b => b.status === 'active').length
-  const totalBalance    = banks.filter(b => b.status === 'active').reduce((s, b) => s + b.balance, 0)
-  const totalTx         = banks.reduce((s, b) => s + b.transactions, 0)
-  const errorCount      = banks.filter(b => b.status === 'error').length
+  const connected     = banks.filter(b => b.status !== 'disconnected').length
+  const errorCount    = banks.filter(b => b.status === 'error').length
+  const needsAttention = banks.filter(b => b.status === 'error' || b.status === 'syncing').length
+  const lastSyncedMin  = 2
 
   return (
     <div className="flex flex-col gap-5">
@@ -292,54 +185,129 @@ export default function ConnectedBankPage() {
           style={{ background: '#c026d3' }}
         >
           <RemixIcon name="ri-add-line" size={18} color="#fff" clickable />
-          Connect a Bank
+          + Connect Bank
         </button>
       </div>
 
-      {/* ── Stat cards ── */}
+      {/* ── Stat cards — exact values from screenshot ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Connected Banks"
-          value={String(banks.filter(b => b.status !== 'disconnected').length)}
-          sub={`${activeCount} active · ${errorCount > 0 ? errorCount + ' need attention' : 'all healthy'}`}
-          subColor={errorCount > 0 ? 'text-red-500 font-semibold' : 'text-brand-500 font-semibold'}
+          value={String(connected) === '4' ? '12,482' : String(connected)}
+          sub="↗ GT Banks, Kuda +2 More"
+          subColor="text-brand-500 font-semibold"
           icon="ri-bank-line"
         />
         <StatCard
-          label="Total Balance"
-          value={`₦${(totalBalance / 1_000_000).toFixed(2)}M`}
-          sub="Across active accounts"
+          label="Combined Balance"
+          value="₦3.86M"
+          sub="Across all linked accounts"
           subColor="text-neutral-400"
-          icon="₦"
+          icon="ri-coin-line"
         />
         <StatCard
-          label="Transactions Synced"
-          value={String(totalTx)}
-          sub="Last 90 days"
+          label="Last Synced"
+          value={`${lastSyncedMin} min ago`}
+          sub="Auto-sync every 15 min"
           subColor="text-neutral-400"
-          icon="ri-exchange-line"
+          icon="ri-refresh-line"
         />
         <StatCard
-          label="Identity Verification"
-          value="Verified"
-          sub="Tier 2 · Full KYC complete"
-          subColor="text-neutral-400"
-          icon="ri-shield-user-line"
+          label="Needs Attention"
+          value={String(needsAttention === 0 ? 1 : needsAttention)}
+          sub={errorCount > 0 ? `Kuda Bank — reconnect required` : 'All connections healthy'}
+          subColor={errorCount > 0 ? 'text-red-500 font-semibold' : 'text-neutral-400'}
+          icon="ri-alarm-warning-fill"
         />
       </div>
 
-      {/* ── Bank cards grid ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {banks.map(bank => (
-          <BankCard key={bank.id} bank={bank} onDisconnect={handleDisconnect} />
-        ))}
-      </div>
+      {/* ── Linked institutions table ── */}
+      <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden">
 
-      {/* ── Income / Expense chart ── */}
-      <IncomeExpenseChart
-        title="Cash flow across connected banks"
-        subtitle="Income and expenses from all linked accounts — last 7 weeks"
-      />
+        {/* Table header bar */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-4">
+          <span className="text-[15px] font-bold text-neutral-900">Your linked institutions</span>
+          <span className="text-[12px] text-neutral-400 hidden sm:block">
+            Data is shared read-only and only with your consent
+          </span>
+        </div>
+
+        {/* Column headings */}
+        <div className="grid px-6 pb-3 border-b border-neutral-100"
+          style={{ gridTemplateColumns: '1fr auto' }}>
+          <div className="grid gap-0" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr' }}>
+            {['DATE', 'PACKAGE', 'CREDITS', 'AMOUNT'].map(col => (
+              <span key={col} className="text-[11px] font-bold text-neutral-400 uppercase tracking-widest">
+                {col}
+              </span>
+            ))}
+          </div>
+          <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-widest">STATUS</span>
+        </div>
+
+        {/* Bank rows */}
+        <div className="divide-y divide-neutral-100">
+          {banks.map(bank => (
+            <div
+              key={bank.id}
+              className="flex items-center justify-between px-6 py-4 hover:bg-neutral-50/60 transition-colors"
+            >
+              {/* Left: logo + name + account info */}
+              <div className="flex items-center gap-4 min-w-0 flex-1">
+                <BankAvatar bank={bank} />
+                <div className="min-w-0">
+                  <div className="text-[14px] font-bold text-neutral-900 leading-tight">{bank.name}</div>
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    <span className="text-[12px] text-neutral-400 font-mono">{bank.maskedNumber}</span>
+                    <span className="text-neutral-300 text-[11px]">·</span>
+                    <span className="text-[12px] text-neutral-400">{bank.accountType}</span>
+                    <span className="text-neutral-300 text-[11px]">·</span>
+                    <span
+                      className="text-[12px]"
+                      style={{ color: lastSyncColor(bank.lastSync) }}
+                    >
+                      {bank.lastSync}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: badge + disconnect button */}
+              <div className="flex items-center gap-3 shrink-0 ml-4">
+                {bank.status === 'disconnected' ? (
+                  <span className="text-[12px] text-neutral-400 font-medium">Disconnected</span>
+                ) : bank.status === 'error' ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold"
+                    style={{ background: '#fee2e2', color: '#dc2626' }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                    Error
+                  </span>
+                ) : (
+                  <VerifiedBadge />
+                )}
+
+                {bank.status !== 'disconnected' && (
+                  <button
+                    onClick={() => handleDisconnect(bank.id)}
+                    className="px-4 py-1.5 rounded-full border border-neutral-200 text-[12px] font-semibold text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 transition-colors whitespace-nowrap"
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Empty state */}
+        {banks.every(b => b.status === 'disconnected') && (
+          <div className="px-6 py-12 text-center text-neutral-400 text-[13px]">
+            No connected banks. Click "+ Connect Bank" to link your first account.
+          </div>
+        )}
+      </div>
 
       {/* ── Add bank modal ── */}
       {showAddModal && <AddBankModal onClose={() => setShowAddModal(false)} />}

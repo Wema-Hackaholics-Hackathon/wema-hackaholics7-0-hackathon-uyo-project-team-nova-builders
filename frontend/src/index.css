@@ -43,13 +43,18 @@
     box-sizing: border-box;
   }
 
-  html, body, #root {
+  html, body {
     height: 100%;
     font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
     font-size: 14px;
     line-height: 1.5;
     color: #18181b;        /* neutral-900 */
     background: #f4f4f5;   /* neutral-100 */
+  }
+
+  /* Dashboard shell needs full height; landing page needs natural scroll */
+  #root {
+    height: 100%;
   }
 
   a { color: inherit; text-decoration: none; }

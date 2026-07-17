@@ -13,16 +13,17 @@ import ProfileSettingsPage from './pages/dashboard/ProfileSettingsPage.tsx'
 import SignupPage from './pages/auth/SignupPage.tsx'
 import LoginPage from './pages/auth/LoginPage.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
+import LandingPage from './pages/LandingPage.tsx'
 
 export default function App() {
   return (
     <Routes>
+      {/* Landing page */}
+      <Route path="/" element={<LandingPage />} />
+
       {/* Auth pages */}
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
-
-      {/* Redirect root to login */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
 
       <Route path="/dashboard" element={
         <ProtectedRoute>
