@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     API_PREFIX: str
     DEBUG: bool = Field(default=False)
     ALLOWED_ORIGINS: str = Field(
-        default="http://localhost:3000,http://localhost:5173,https://"
+        default="http://localhost:3000,http://localhost:5173,https://foid-mu.vercel.app"
     )
     PORT: int = Field(default=8080)
     PROD_DB: str = Field(...)
