@@ -1,7 +1,6 @@
 /* ─── Imports must come first per CSS spec ──────────────────────────── */
 @import "tailwindcss";
 @import 'remixicon/fonts/remixicon.css';
-@import url('https://fonts.cdnfonts.com/css/neue-machina');
 
 /* ─── Brand colour tokens ───────────────────────────────────────────── */
 @theme {

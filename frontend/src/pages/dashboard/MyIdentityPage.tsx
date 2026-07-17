@@ -1,3 +1,5 @@
+import RemixIcon from '@/components/RemixIcon'
+
 /* ── Trust ring SVG ─────────────────────────────────────────────────── */
 function TrustRing({ pct }: { pct: number }) {
   const r    = 42
@@ -42,8 +44,8 @@ const VERIF_STEPS = [
 
 /* ── Linked accounts ────────────────────────────────────────────────── */
 const LINKED_ACCOUNTS = [
-  { name: 'Wema Bank', date: 'Linked 12 Jun 2026' },
-  { name: 'GT Bank',   date: 'Linked 12 Jun 2026' },
+  { name: 'Wema Bank', date: 'Linked 12 Jun 2026', logo: '/wema.jpg' },
+  { name: 'GT Bank',   date: 'Linked 12 Jun 2026', logo: '/GTCO.jpg' },
 ]
 
 /* ── Page ───────────────────────────────────────────────────────────── */
@@ -57,13 +59,13 @@ export default function MyIdentityPage() {
           <h1 className="text-[26px] font-bold tracking-tight text-neutral-900">My Identity</h1>
           <p className="text-neutral-500 mt-1 text-[13.5px]">Your verified digital identity, generated once and reusable everywhere</p>
         </div>
-        <button className="flex items-center gap-2 px-5 py-2.5 border border-neutral-200 rounded-lg font-semibold text-[14px] text-neutral-800 bg-white hover:bg-neutral-50 transition-colors shrink-0">
-          <i className="ri-download-2-line" /> Download Identity Summary
+        <button className="flex items-center gap-2 px-5 py-2.5 border border-neutral-200 rounded-full font-semibold text-[14px] text-neutral-800 bg-white hover:bg-neutral-50 transition-colors shrink-0">
+          <RemixIcon name="ri-download-2-line" size={20} /> Download Identity Summary
         </button>
       </div>
 
       {/* ── Hero card ── */}
-      <div className="bg-white border border-neutral-200 rounded-2xl p-7 flex items-center gap-7">
+      <div className="bg-white border border-neutral-200 rounded-2xl pl-9 pr-[54px] py-10 flex items-center gap-7">
         {/* Avatar */}
         <img
           src="/avatar.png"
@@ -108,10 +110,10 @@ export default function MyIdentityPage() {
                   <div className="flex flex-col items-center gap-2.5 flex-shrink-0">
                     {/* Icon circle */}
                     <div className={[
-                      'w-11 h-11 rounded-full flex items-center justify-center text-[20px] text-white shrink-0',
+                      'w-11 h-11 rounded-full flex items-center justify-center shrink-0',
                       step.done ? 'bg-brand-500' : 'bg-neutral-200',
                     ].join(' ')}>
-                      <i className={step.icon + (step.done ? '' : ' text-neutral-400')} />
+                      <RemixIcon name={step.icon} size={20} color={step.done ? '#fff' : '#a1a1aa'} />
                     </div>
                     <span className="text-[12px] text-neutral-500 font-medium text-center">{step.label}</span>
                   </div>
@@ -141,7 +143,7 @@ export default function MyIdentityPage() {
                 ].join(' ')}
               >
                 {/* Bank logo */}
-                <img src="/avatar.png" alt={acct.name} className="w-9 h-9 rounded-lg object-cover shrink-0 border border-neutral-100" />
+                <img src={acct.logo} alt={acct.name} className="w-9 h-9 rounded-lg object-cover shrink-0 border border-neutral-100" />
                 <div className="flex-1 min-w-0">
                   <div className="text-[14px] font-semibold text-neutral-900">{acct.name}</div>
                   <div className="text-[12px] text-neutral-400">{acct.date}</div>
