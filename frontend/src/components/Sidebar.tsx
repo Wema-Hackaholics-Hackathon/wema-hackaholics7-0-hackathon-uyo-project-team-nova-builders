@@ -54,7 +54,7 @@ export default function Sidebar() {
           justifyContent: collapsed ? 'center' : 'flex-start',
           gap: collapsed ? 0 : 1.5,
           transition: 'gap 220ms ease',
-		  paddingBottom: 16
+                  paddingBottom: 16
         }}
       >
         {/* Logo image — always visible */}
@@ -67,7 +67,7 @@ export default function Sidebar() {
             objectFit: 'contain',
             flexShrink: 0,
             display: 'block',
-			...labelStyle(collapsed),
+                        ...labelStyle(collapsed),
           }}
         />
 
@@ -104,7 +104,7 @@ export default function Sidebar() {
         style={{
           paddingBottom: 16,
           paddingTop: 16,
-		  transition: 'padding 220ms ease',
+                  transition: 'padding 220ms ease',
         }}
       >
         {NAV_ITEMS.map(item => (

@@ -60,11 +60,11 @@ export default function SignupPage() {
 
   return (
     <div
-      className="relative w-screen h-screen overflow-hidden flex items-center justify-end"
+      className="relative w-screen h-screen overflow-hidden flex items-center justify-center md:justify-end"
       style={{
         backgroundImage: `url('/signup.jpg')`,
         backgroundSize: 'cover',
-        backgroundPosition: '-200px -66px',
+        backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
         backgroundColor: '#6C0078',
       }}
@@ -84,16 +84,16 @@ export default function SignupPage() {
       />
 
       <div
-        className="relative w-screen h-screen overflow-hidden flex items-center justify-end"
-        style={{ padding: 'clamp(12px, 3vh, 40px) clamp(40px, 10vw, 160px)', height: '100%' }}
+        className="relative w-screen h-screen overflow-hidden flex items-center justify-center md:justify-end"
+        style={{ padding: 'clamp(12px, 3vh, 40px) clamp(16px, 5vw, 160px)', height: '100%' }}
       >
         <div
           className="bg-white w-full overflow-y-auto"
           style={{
             maxWidth: 705,
             maxHeight: '100%',
-            borderRadius: 38,
-            padding: 'clamp(24px, 5vh, 55px) clamp(28px, 5vw, 58px)',
+            borderRadius: 24,
+            padding: 'clamp(20px, 4vh, 55px) clamp(20px, 4vw, 58px)',
             boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
           }}
         >
@@ -133,7 +133,7 @@ export default function SignupPage() {
             className="flex flex-col"
             style={{ gap: 'clamp(14px, 2.4vh, 31px)' }}
           >
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="First name" required>
                 <Input id="first-name" name="firstName" placeholder="name@company.com"
                   value={form.firstName} onChange={set} required />
@@ -144,7 +144,7 @@ export default function SignupPage() {
               </Field>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="Middle name">
                 <Input id="middle-name" name="middleName" placeholder="name@company.com"
                   value={form.middleName} onChange={set} />
@@ -160,7 +160,7 @@ export default function SignupPage() {
                 value={form.email} onChange={set} required />
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="Password" required>
                 <PasswordInput
                   id="password" name="password"

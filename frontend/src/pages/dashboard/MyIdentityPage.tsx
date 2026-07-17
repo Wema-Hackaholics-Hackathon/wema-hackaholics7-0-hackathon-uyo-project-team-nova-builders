@@ -54,46 +54,46 @@ export default function MyIdentityPage() {
     <div className="flex flex-col gap-5">
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold tracking-tight text-neutral-900">My Identity</h1>
+          <h1 className="text-[22px] md:text-[26px] font-bold tracking-tight text-neutral-900">My Identity</h1>
           <p className="text-neutral-500 mt-1 text-[13.5px]">Your verified digital identity, generated once and reusable everywhere</p>
         </div>
-        <button className="flex items-center gap-2 px-5 py-2.5 border border-neutral-200 rounded-full font-semibold text-[14px] text-neutral-800 bg-white hover:bg-neutral-50 transition-colors shrink-0">
+        <button className="flex items-center gap-2 px-5 py-2.5 border border-neutral-200 rounded-full font-semibold text-[14px] text-neutral-800 bg-white hover:bg-neutral-50 transition-colors shrink-0 w-full md:w-auto justify-center">
           <RemixIcon name="ri-download-2-line" size={20} /> Download Identity Summary
         </button>
       </div>
 
       {/* ── Hero card ── */}
-      <div className="bg-white border border-neutral-200 rounded-2xl pl-9 pr-[54px] py-10 flex items-center gap-7">
+      <div className="bg-white border border-neutral-200 rounded-2xl pl-6 md:pl-9 pr-6 md:pr-[54px] py-6 md:py-10 flex flex-col md:flex-row items-center md:items-start gap-6 md:gap-7">
         {/* Avatar */}
         <img
           src="/avatar.png"
           alt="Daniel Afolabi"
-          className="w-[86px] h-[86px] rounded-full object-cover border-[3.5px] border-brand-400 shrink-0"
+          className="w-[70px] h-[70px] md:w-[86px] md:h-[86px] rounded-full object-cover border-[3.5px] border-brand-400 shrink-0"
         />
 
         {/* Name + badge */}
-        <div>
-          <div className="text-[22px] font-bold text-neutral-900 mb-2">Daniel Afolabi</div>
+        <div className="text-center md:text-left">
+          <div className="text-[20px] md:text-[22px] font-bold text-neutral-900 mb-2">Daniel Afolabi</div>
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-100 text-brand-600 text-[13px] font-semibold">
             Tier 2 · Fully verified
           </span>
         </div>
 
         {/* Trust ring — pushed right */}
-        <div className="ml-auto flex items-center gap-5">
+        <div className="flex items-center gap-5 md:ml-auto">
           <TrustRing pct={98} />
           <div>
             <div className="text-[11px] text-neutral-400 mb-1">Trust Score</div>
-            <div className="text-[22px] font-extrabold text-neutral-900 leading-none">98.4/100</div>
+            <div className="text-[20px] md:text-[22px] font-extrabold text-neutral-900 leading-none">98.4/100</div>
             <div className="text-[12px] text-neutral-400 mt-1">Top 8% of verified FOID users</div>
           </div>
         </div>
       </div>
 
       {/* ── Bottom row ── */}
-      <div className="grid grid-cols-[1fr_360px] gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5">
 
         {/* Verification progress */}
         <div className="bg-white border border-neutral-200 rounded-2xl p-7">
@@ -101,12 +101,12 @@ export default function MyIdentityPage() {
           <div className="text-[12.5px] text-neutral-400 mb-10">All steps complete — your identity credential is fully active</div>
 
           {/* Steps with connectors */}
-          <div className="flex items-start justify-center">
+          <div className="flex items-start justify-center overflow-x-auto pb-2">
             {VERIF_STEPS.map((step, i) => {
               const isLast = i === VERIF_STEPS.length - 1
               const nextDone = !isLast && VERIF_STEPS[i + 1].done
               return (
-                <div key={step.label} className="flex items-start flex-1">
+                <div key={step.label} className="flex items-start flex-1 min-w-[80px]">
                   <div className="flex flex-col items-center gap-2.5 flex-shrink-0">
                     {/* Icon circle */}
                     <div className={[
@@ -120,7 +120,7 @@ export default function MyIdentityPage() {
                   {/* Connector line */}
                   {!isLast && (
                     <div className={[
-                      'flex-1 h-[3px] mt-[22px] mx-1 rounded-full',
+                      'flex-1 h-[3px] mt-[22px] mx-1 rounded-full hidden sm:block',
                       nextDone ? 'bg-brand-500' : 'bg-neutral-200',
                     ].join(' ')} />
                   )}

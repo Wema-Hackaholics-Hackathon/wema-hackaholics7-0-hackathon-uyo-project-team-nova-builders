@@ -131,18 +131,18 @@ export default function OverviewPage() {
     <div className="flex flex-col gap-4">
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold tracking-tight text-neutral-900">Welcome back, Daniel</h1>
+          <h1 className="text-[22px] md:text-[26px] font-bold tracking-tight text-neutral-900">Welcome back, Daniel</h1>
           <p className="text-neutral-500 mt-1 text-[13.5px]">Here's a snapshot of your identity, credentials, and business finances</p>
         </div>
-        <button className="flex items-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-full font-semibold text-[14px] transition-colors shrink-0">
+        <button className="flex items-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-full font-semibold text-[14px] transition-colors shrink-0 w-full md:w-auto justify-center">
           + Connect a Bank
         </button>
       </div>
 
       {/* ── Row 1 stat cards ── */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Connected Banks"      value="12,482"          sub="↗ GT Banks, Kuda +2 More"          subColor="text-brand-500 font-semibold" icon="ri-bank-line" />
         <StatCard label="Identity Verification" value="Verified"        sub="Tier 2 · Full KYC complete"        subColor="text-neutral-400"              icon="ri-shield-user-line" />
         <StatCard label="Active Credentials"    value="156"             sub="Shared across 6 platforms"         subColor="text-green-600 font-semibold"  icon="ri-book-read-fill" />
@@ -150,7 +150,7 @@ export default function OverviewPage() {
       </div>
 
       {/* ── Row 2 stat cards ── */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Monthly Income"        value={naira(2140500)}  sub="Per creator weekly"                subColor="text-neutral-400"              icon="₦" />
         <StatCard label="Monthly Expense"       value={naira(2140500)}  sub="Per creator weekly"                subColor="text-neutral-400"              icon="ri-hand-coin-line" />
         <StatCard label="Estimated Taxes"       value={naira(412600)}   sub="Per creator weekly"                subColor="text-neutral-400"              icon="ri-percent-line" />
@@ -158,7 +158,7 @@ export default function OverviewPage() {
       </div>
 
       {/* ── Charts row ── */}
-      <div className="grid grid-cols-[1fr_450px] gap-7 py-4">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_450px] gap-7 py-4">
         <IncomeExpenseChart />
 
         {/* Credential card */}
@@ -238,7 +238,7 @@ export default function OverviewPage() {
         <div className="bg-white border border-neutral-200 rounded-2xl p-5">
           <div className="font-bold text-[15px] text-neutral-900 mb-0.5">Where your credential is used</div>
           <div className="text-[12px] text-neutral-400 mb-4">Verification pulls by connected platforms</div>
-          <ResponsiveContainer width="100%" height={380}>
+          <ResponsiveContainer width="100%" height={300}>
             <BarChart data={credentialUsageData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }} barSize={44} barCategoryGap="20%">
               <CartesianGrid strokeDasharray="3 3" stroke="#f4f4f5" vertical={false} />
               <XAxis dataKey="platform" tick={{ fontSize: 11, fill: '#a1a1aa' }} axisLine={false} tickLine={false} />
@@ -269,7 +269,7 @@ export default function OverviewPage() {
             {(() => {
               const max = Math.max(...spendingCategories.map(c => c.pct))
               return spendingCategories.map(c => (
-                <div key={c.label} className="grid items-center gap-3" style={{ gridTemplateColumns: '84px 1fr' }}>
+                <div key={c.label} className="grid items-center gap-3" style={{ gridTemplateColumns: 'minmax(84px, auto) 1fr' }}>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.color }} />
                     <span className="text-[13.5px] font-semibold text-neutral-900">{c.label}</span>

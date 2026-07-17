@@ -32,7 +32,7 @@ export default function LoginPage() {
 
   return (
     <div
-      className="relative w-screen h-screen overflow-hidden flex items-center justify-end"
+      className="relative w-screen h-screen overflow-hidden flex items-center justify-center md:justify-end"
       style={{
         backgroundImage: `url('/login.jpg')`,
         backgroundSize: 'cover',
@@ -49,8 +49,8 @@ export default function LoginPage() {
 
       {/* Card wrapper */}
       <div
-        className="relative z-10 w-screen h-screen flex items-center justify-end"
-        style={{ padding: 'clamp(12px, 3vh, 40px) clamp(40px, 10vw, 160px)', height: '100%' }}
+        className="relative z-10 w-screen h-screen flex items-center justify-center md:justify-end"
+        style={{ padding: 'clamp(12px, 3vh, 40px) clamp(16px, 5vw, 160px)', height: '100%' }}
       >
         {/* White card */}
         <div
@@ -58,8 +58,8 @@ export default function LoginPage() {
           style={{
             maxWidth: 705,
             maxHeight: '100%',
-            borderRadius: 38,
-            padding: 'clamp(24px, 5vh, 55px) clamp(28px, 5vw, 58px)',
+            borderRadius: 24,
+            padding: 'clamp(20px, 4vh, 55px) clamp(20px, 4vw, 58px)',
             boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
           }}
         >
