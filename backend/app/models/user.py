@@ -18,7 +18,7 @@ class User(SQLModel, table=True):
     email: EmailStr = Field(...)
     password: str = Field(...)
     phone_number: str = Field(...)
-    created_at: str = datetime.now(UTC).isoformat()
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     kyc: "KYC" = Relationship(back_populates="user")
 

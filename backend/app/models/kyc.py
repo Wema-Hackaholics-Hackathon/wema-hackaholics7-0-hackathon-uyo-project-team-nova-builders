@@ -2,7 +2,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from utils import customKYCID
 from pydantic import EmailStr, SecretStr
 from datetime import datetime, UTC
-from enum import StrEnum
+from enum import StrEnum, auto
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -11,9 +11,9 @@ if TYPE_CHECKING:
 class KYCStatus(StrEnum):
     """Enum for KYC verification status"""
 
-    PENDING = "pending"
-    VERIFIED = "verified"
-    FAILED = "failed"
+    PENDING = auto()
+    VERIFIED = auto()
+    FAILED = auto()
 
 
 class KYC(SQLModel, table=True):
@@ -24,8 +24,7 @@ class KYC(SQLModel, table=True):
     bvn: str = Field(...)
     nin: str = Field(...)
     verification_status: KYCStatus = Field(default=KYCStatus.PENDING)
-    created_at: str = datetime.now(UTC).isoformat()
-
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     user: "User" = Relationship(back_populates="kyc")
 
     @property
@@ -43,3 +42,32 @@ class KYC(SQLModel, table=True):
     @property
     def phone(self) -> str:
         return self.user.phone_number if self.user else ""
+
+
+class VerifyKYCRequest(SQLModel):
+    """schema for verifying user KYC"""
+
+    bvn: str = Field(
+        ..., min_length=11, 
+        max_length=11, 
+        description="11-digit Bank Verification Number"
+    )
+    nin: str = Field(
+        ..., min_length=11, 
+        max_length=11, 
+        description="11-digit National Identity Number"
+    )
+
+
+class KYCResponse(SQLModel):
+    """Schema for KYC output"""
+
+    id: str
+    user_id: str
+    status: KYCStatus
+    firstname: str
+    lastname: str
+    email: EmailStr
+    bvn: str
+    nin: str
+    verified_at: str
