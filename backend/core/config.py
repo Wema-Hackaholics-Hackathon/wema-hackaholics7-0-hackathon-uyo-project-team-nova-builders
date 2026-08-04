@@ -1,11 +1,7 @@
 from functools import lru_cache
 from typing import List
-
-from dotenv import load_dotenv
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-load_dotenv()
 
 
 class Settings(BaseSettings):
@@ -17,7 +13,7 @@ class Settings(BaseSettings):
         case_sensitive=True, extra="ignore"
     )
 
-    API_PREFIX: str
+    API_PREFIX: str = Field(...)
     DEBUG: bool = Field(default=False)
     ALLOWED_ORIGINS: str = Field(
         default="http://localhost:3000,http://localhost:5173,https://foid-mu.vercel.app"
@@ -26,8 +22,6 @@ class Settings(BaseSettings):
     PROD_DB: str = Field(...)
     DEV_DB: str = Field(...)
     SECRET_KEY: str = Field(...)
-
-    
 
     @field_validator("ALLOWED_ORIGINS")
     def parse_allowed_origins(cls, v: str) -> List[str]:

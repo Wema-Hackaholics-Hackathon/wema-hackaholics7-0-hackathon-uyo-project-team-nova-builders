@@ -1,16 +1,18 @@
-from core.config import settings
-from sqlmodel import SQLModel
+from datetime import datetime, timedelta, timezone
+from typing import Annotated, Optional
+
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from passlib.context import CryptContext
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlmodel import SQLModel
+
 from app.models import User
 from core.config import settings
 from core.session import get_session
-from typing import Annotated, Optional
-from datetime import datetime, timedelta, timezone
 
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
@@ -28,6 +30,7 @@ class LoginRequest(SQLModel):
 
 
 auth_scheme = HTTPBearer()
+
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     """Function to create access token"""
@@ -54,6 +57,34 @@ async def get_user_by_Id(session: AsyncSession, id: str) -> User | None:
     result = await session.execute(select(User).where(User.id == id))
     return result.scalar_one_or_none()
 
+
+async def get_user_by_email(session: AsyncSession, email: EmailStr) -> User | None:
+    """Retrieve a user from the database."""
+
+    result = await session.execute(select(User).where(User.email == email))
+    return result.scalar_one_or_none()
+
+
+### ---- Password hashing mechanism ---- ###
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+
+
+def hash_password(password: str) -> str:
+    """Hash a plaintext password."""
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plaintext password against a hashed password."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+async def authenticate_user(db: AsyncSession, req: LoginRequest) -> User | bool:
+    """Helper to authenticate a user"""
+    user = await get_user_by_email(db, req.email)
+    if not user or not verify_password(req.password, user.password):
+        return False
+    return user
 
 
 async def get_current_user(

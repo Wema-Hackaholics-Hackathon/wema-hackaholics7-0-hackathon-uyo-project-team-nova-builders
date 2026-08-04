@@ -16,3 +16,5 @@ def customKYCID() -> str:
     slice = string_id[8:13]
     new_id = f'FOID:KYC{slice}'
     return new_id
+
+
