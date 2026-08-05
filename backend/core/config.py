@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = Field(
         default="http://localhost:3000,http://localhost:5173,https://foid-mu.vercel.app"
     )
-    PORT: int = Field(default=8080)
+    # PORT: int = Field(default=8080)
     PROD_DB: str = Field(...)
     DEV_DB: str = Field(...)
     SECRET_KEY: str = Field(...)
