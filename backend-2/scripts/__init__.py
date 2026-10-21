@@ -1,0 +1,1 @@
+"""Handle independent scripts and setups not linked directly to the backend"""
