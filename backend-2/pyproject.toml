@@ -29,8 +29,8 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "pydantic[email]>=2.13.5",
     "fpdf2>=2.8.8",
-    "opencv-python-headless>=5.0.0.93",
     "numpy>=2.5.4",
+    "opencv-python-headless==4.10.0.84",
 ]
 
 [tool.uv]

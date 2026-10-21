@@ -86,6 +86,7 @@ class UserOut(BaseModel):
     address: str | None
     proof_of_address_url: str | None
     avatar_url: str | None
+    liveness_selfie_url: str | None
     email: str
     created_at: datetime
 

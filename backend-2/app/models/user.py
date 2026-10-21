@@ -43,6 +43,8 @@ class User(SQLModel, table=True):
     proof_of_address_url: str | None = Field(default=None)
     # Profile picture — file path saved after uploading an avatar image
     avatar_url: str | None = Field(default=None)
+    # Liveness selfie — saved after passing the active liveness challenge
+    liveness_selfie_url: str | None = Field(default=None)
     email: str = Field(unique=True, index=True)
     hashed_password: str
     # Admin flag — only True for platform staff; set directly in the DB or via seeding
