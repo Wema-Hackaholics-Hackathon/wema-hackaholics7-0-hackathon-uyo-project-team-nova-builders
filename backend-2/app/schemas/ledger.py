@@ -24,10 +24,20 @@ class LedgerEntryOut(BaseModel):
     created_at: datetime
 
 
+class LedgerEntryCreate(BaseModel):
+    entry_date: date
+    description: str
+    category: str
+    entry_type: Literal["income", "expense"]
+    amount: Decimal
+
+
 class LedgerEntryUpdate(BaseModel):
     description: str | None = None
     category: str | None = None
     amount: Decimal | None = None
+    entry_type: Literal["income", "expense"] | None = None
+    entry_date: date | None = None
 
 
 class ChatMessage(BaseModel):

@@ -30,7 +30,7 @@ from ..core.dependencies import get_current_user
 from ..models.ledger_entry import LedgerEntry
 from ..models.user import User
 from ..models.wallet import Wallet
-from ..schemas.ledger import ChatRequest, ChatResponse, LedgerEntryOut, LedgerEntryUpdate
+from ..schemas.ledger import ChatRequest, ChatResponse, LedgerEntryCreate, LedgerEntryOut, LedgerEntryUpdate
 from ..services import groq_service, wallet_service
 
 router = APIRouter(prefix="/ledger", tags=["ledger"])
@@ -274,6 +274,51 @@ async def export_pdf(
     )
 
 
+@router.post("/manual", response_model=LedgerEntryOut, status_code=status.HTTP_201_CREATED)
+async def create_manual_entry(
+    body: LedgerEntryCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LedgerEntryOut:
+    """Add a ledger entry manually (no file upload). No credit cost."""
+    entry = LedgerEntry(
+        user_id=current_user.id,
+        entry_date=body.entry_date,
+        description=body.description,
+        category=body.category,
+        entry_type=body.entry_type,
+        amount=body.amount,
+        source="manual",
+        confidence=1.0,
+        raw_file_path=None,
+    )
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return LedgerEntryOut.model_validate(entry)
+
+
+@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_ledger_entry(
+    entry_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a ledger entry owned by the current user."""
+    result = await db.exec(
+        select(LedgerEntry).where(
+            LedgerEntry.id == entry_id,
+            LedgerEntry.user_id == current_user.id,
+        )
+    )
+    entry = result.first()
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
+
+    await db.delete(entry)
+    await db.commit()
+
+
 @router.patch("/{entry_id}", response_model=LedgerEntryOut)
 async def update_ledger_entry(
     entry_id: str,
@@ -281,7 +326,7 @@ async def update_ledger_entry(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> LedgerEntryOut:
-    """Edit a ledger entry (description, category, amount)."""
+    """Edit a ledger entry (description, category, amount, entry_type, entry_date)."""
     result = await db.exec(
         select(LedgerEntry).where(
             LedgerEntry.id == entry_id,
@@ -298,6 +343,10 @@ async def update_ledger_entry(
         entry.category = body.category
     if body.amount is not None:
         entry.amount = body.amount
+    if body.entry_type is not None:
+        entry.entry_type = body.entry_type
+    if body.entry_date is not None:
+        entry.entry_date = body.entry_date
 
     db.add(entry)
     await db.commit()

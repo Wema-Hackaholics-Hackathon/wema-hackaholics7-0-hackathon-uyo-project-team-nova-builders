@@ -78,9 +78,11 @@ async def _get_wallet_or_404(user_id: str, db: AsyncSession) -> Wallet:
 async def _read_wallet_with_refresh(user_id: str, db: AsyncSession) -> Wallet:
     """Load wallet and apply monthly free-credit refresh if needed."""
     wallet = await _get_wallet_or_404(user_id, db)
-    refreshed = apply_monthly_refresh(wallet)
+    refreshed, grant_tx = apply_monthly_refresh(wallet, log_tx=True)
     if refreshed:
         db.add(wallet)
+        if grant_tx is not None:
+            db.add(grant_tx)
         await db.commit()
         await db.refresh(wallet)
     return wallet
@@ -133,40 +135,42 @@ async def initiate_purchase(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PurchaseInitResponse:
-    """Initiate a payment for a custom NGN amount.
+    """Create a Bachs checkout session for a custom NGN amount.
 
-    Credits are calculated as: floor(amount_ngn / CREDIT_PRICE_NGN).
-    Minimum purchase: MIN_PURCHASE_NGN.
+    Credits = floor(amount_ngn / CREDIT_PRICE_NGN).
+    Minimum purchase = MIN_PURCHASE_NGN (₦500 → 100 credits).
     """
     settings = get_settings()
     credits = math.floor(body.amount_ngn / settings.CREDIT_PRICE_NGN)
-    amount_kobo = body.amount_ngn * 100  # Paystack amounts are in kobo
 
     wallet = await _get_wallet_or_404(current_user.id, db)
     reference = str(uuid.uuid4())
 
-    # Create a pending WalletTransaction so the webhook can find it
+    # Create a pending WalletTransaction so the webhook can match it by reference
     pending_tx = WalletTransaction(
         id=str(uuid.uuid4()),
         wallet_id=wallet.id,
         transaction_type="purchase",
         credits_delta=credits,
-        feature=f"Custom purchase — {credits:,} credits (₦{body.amount_ngn:,})",
-        paystack_reference=reference,
+        feature=f"Credit purchase — {credits:,} credits (₦{body.amount_ngn:,})",
+        paystack_reference=reference,   # field reused for Bachs reference
         status="pending",
     )
     db.add(pending_tx)
     await db.commit()
 
     frontend_base = settings.ALLOWED_ORIGINS.split(",")[0].strip()
-    callback_url = f"{frontend_base}/dashboard/wallet"
+    success_url = f"{frontend_base}/dashboard/wallet"
+    cancel_url  = f"{frontend_base}/dashboard/wallet"
 
     try:
-        result: Any = await paystack_service.initialize_transaction(
+        result: Any = await bachs_service.create_checkout_session(
+            amount_ngn=body.amount_ngn,
             email=current_user.email,
-            amount_kobo=amount_kobo,
+            name=f"{current_user.first_name} {current_user.last_name}",
             reference=reference,
-            callback_url=callback_url,
+            success_url=success_url,
+            cancel_url=cancel_url,
             metadata={
                 "user_id": current_user.id,
                 "credits": credits,
@@ -174,14 +178,19 @@ async def initiate_purchase(
             },
         )
     except httpx.HTTPStatusError as exc:
+        try:
+            detail = exc.response.json()
+        except Exception:
+            detail = exc.response.text
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Payment initialisation failed: {exc.response.status_code}",
+            detail=f"Bachs checkout failed ({exc.response.status_code}): {detail}",
         ) from exc
 
-    authorization_url: str = result.get("data", {}).get("authorization_url", "")
+    # Bachs returns checkout_url directly at the top level (201 response)
+    checkout_url: str = result.get("checkout_url", "")
     return PurchaseInitResponse(
-        authorization_url=authorization_url,
+        authorization_url=checkout_url,   # same field name — frontend just opens this URL
         reference=reference,
         credits=credits,
         amount_ngn=body.amount_ngn,
@@ -189,31 +198,44 @@ async def initiate_purchase(
 
 
 # ---------------------------------------------------------------------------
-# POST /wallet/paystack-webhook  (public — no auth, HMAC verified)
+# POST /wallet/bachs-webhook  (public — no auth, HMAC-SHA256 verified)
 # ---------------------------------------------------------------------------
 
-@router.post("/paystack-webhook", status_code=status.HTTP_200_OK)
-async def paystack_webhook(
+@router.post("/bachs-webhook", status_code=status.HTTP_200_OK)
+async def bachs_webhook(
     request: Request,
-    x_paystack_signature: str = Header(default=""),
+    x_bachs_timestamp: str = Header(default=""),
+    x_bachs_signature_v2: str = Header(default=""),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
-    """Handle charge.success webhook — credits are added to paid_credits only."""
+    """Handle Bachs collection.succeeded webhook.
+
+    Verification: HMAC-SHA256 of "{timestamp}.{raw_body}" using BACHS_WEBHOOK_SECRET.
+    Credits are added to paid_credits only. Idempotent — ignores already-processed references.
+    """
     payload = await request.body()
 
-    if not paystack_service.verify_webhook_signature(payload, x_paystack_signature):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
+    if not bachs_service.verify_webhook_signature(
+        payload, x_bachs_timestamp, x_bachs_signature_v2
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Bachs webhook signature",
+        )
 
     import json as _json
     event: Any = _json.loads(payload)
-    if event.get("event") != "charge.success":
-        return {"status": "ignored"}
 
-    reference: str = event.get("data", {}).get("reference", "")
+    # Only act on collection.succeeded — acknowledge everything else silently
+    if event.get("type") != "collection.succeeded":
+        return {"status": "ignored", "type": event.get("type", "unknown")}
+
+    data = event.get("data", {})
+    reference: str = data.get("reference", "")
     if not reference:
         return {"status": "no_reference"}
 
-    # Find the pending WalletTransaction
+    # Find the matching pending WalletTransaction (idempotency: skip if already paid)
     tx_result = await db.exec(
         select(WalletTransaction).where(
             WalletTransaction.paystack_reference == reference,
@@ -222,9 +244,10 @@ async def paystack_webhook(
     )
     pending_tx = tx_result.first()
     if pending_tx is None:
-        return {"status": "not_found"}
+        # Already processed or unknown reference — return 200 so Bachs stops retrying
+        return {"status": "already_processed_or_not_found"}
 
-    # Mark paid and top up the PAID bucket only
+    # Mark as paid and top up paid_credits only (never free_credits)
     pending_tx.status = "paid"
     db.add(pending_tx)
 
@@ -238,6 +261,12 @@ async def paystack_webhook(
         db.add(wallet)
 
     await db.commit()
+
+    print(
+        f"[bachs-webhook] collection.succeeded ref={reference} "
+        f"credits=+{pending_tx.credits_delta} wallet={pending_tx.wallet_id}",
+        flush=True,
+    )
     return {"status": "ok"}
 
 

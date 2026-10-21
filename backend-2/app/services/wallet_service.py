@@ -35,20 +35,35 @@ def _current_month() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
-def apply_monthly_refresh(wallet: Wallet) -> bool:
+def apply_monthly_refresh(wallet: Wallet, log_tx: bool = False) -> tuple[bool, "WalletTransaction | None"]:
     """Reset free_credits if a new calendar month has started.
 
-    Mutates wallet in-place. Returns True if a refresh was applied
-    (caller should add wallet to the session and commit).
+    Mutates wallet in-place.
+    Returns (refreshed, tx_or_none).
+      - refreshed   — True if a refresh was applied (caller should add + commit)
+      - tx_or_none  — a staged WalletTransaction grant row if log_tx=True, else None
+                      (caller must db.add() it before committing)
     """
     month = _current_month()
     if wallet.last_free_refresh == month:
-        return False  # already refreshed this month
+        return False, None
 
     wallet.free_credits = get_settings().FREE_MONTHLY_CREDITS
     wallet.last_free_refresh = month
     wallet.updated_at = datetime.now(timezone.utc)
-    return True
+
+    tx: WalletTransaction | None = None
+    if log_tx:
+        tx = WalletTransaction(
+            id=str(uuid.uuid4()),
+            wallet_id=wallet.id,
+            transaction_type="grant",
+            credits_delta=wallet.free_credits,
+            feature=f"Monthly free credit grant — {month}",
+            credit_type="free",
+            status=None,
+        )
+    return True, tx
 
 
 class InsufficientCreditsError(Exception):
@@ -79,8 +94,9 @@ async def deduct_credits(
             detail="Wallet not found",
         )
 
-    # Apply monthly refresh (may change free_credits)
-    apply_monthly_refresh(wallet)
+    # Apply monthly refresh (may change free_credits) — no grant log here,
+    # the GET /wallet endpoint logs it; deduct just needs the updated balance.
+    apply_monthly_refresh(wallet, log_tx=False)
 
     total = wallet.free_credits + wallet.paid_credits
     if total < amount:

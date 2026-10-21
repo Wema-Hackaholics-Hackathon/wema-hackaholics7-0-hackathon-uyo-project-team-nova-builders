@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 
+import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +14,31 @@ from .routers import *
 from .utils.cache import ping as redis_ping
 from .utils.limiter import limiter
 
+_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60   # run every 6 hours
+
+
+async def _token_cleanup_loop() -> None:
+    """Background task: delete expired / used tokens every 6 hours."""
+    from sqlalchemy import text
+    from .config import _get_session_factory
+
+    await asyncio.sleep(30)   # give the server a moment to fully start
+    while True:
+        try:
+            now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+            async with _get_session_factory()() as db:
+                for stmt in (
+                    "DELETE FROM refresh_tokens WHERE revoked = 1 OR expires_at < :now",
+                    "DELETE FROM password_reset_tokens WHERE used = 1 OR expires_at < :now",
+                    "DELETE FROM email_verification_tokens WHERE used = 1 OR expires_at < :now",
+                ):
+                    await db.execute(text(stmt), {"now": now_iso})
+                await db.commit()
+            print("[cleanup] expired tokens purged", flush=True)
+        except Exception as exc:
+            print(f"[cleanup] error: {exc}", flush=True)
+        await asyncio.sleep(_CLEANUP_INTERVAL_SECONDS)
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -20,7 +47,9 @@ async def lifespan(_app: FastAPI):
     redis_ok = await redis_ping()
     print(f"  Database : {'✓ connected' if db_ok else '✗ unreachable'}")
     print(f"  Redis    : {'✓ connected' if redis_ok else '✗ unreachable (cache disabled)'}")
+    cleanup_task = asyncio.create_task(_token_cleanup_loop())
     yield
+    cleanup_task.cancel()
 
 
 settings = get_settings()
