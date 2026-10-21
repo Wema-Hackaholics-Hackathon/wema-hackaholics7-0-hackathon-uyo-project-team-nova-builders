@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession  # has .exec() unlike sqlalchemy's AsyncSession
 
-from app.config import get_db
+from app.config import get_db, get_settings
 from app.core.dependencies import get_current_user
 from app.core.security import (
     create_access_token,
@@ -185,7 +185,13 @@ async def signup(
         state="active",
         claims=cast(CredentialClaims, cast(object, dict(DEFAULT_CLAIMS))),
     ))
-    db.add(Wallet(user_id=user.id, balance=0))
+    from ..services.wallet_service import _current_month
+    db.add(Wallet(
+        user_id=user.id,
+        free_credits=get_settings().FREE_MONTHLY_CREDITS,
+        paid_credits=0,
+        last_free_refresh=_current_month(),
+    ))
 
     db.add(RefreshToken(
         user_id=user.id,

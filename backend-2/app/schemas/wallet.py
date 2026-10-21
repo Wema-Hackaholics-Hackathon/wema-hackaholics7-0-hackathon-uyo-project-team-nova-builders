@@ -12,7 +12,9 @@ class WalletOut(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(from_attributes=True)
 
     id: str
-    balance: int
+    free_credits: int       # resets monthly
+    paid_credits: int       # never expire
+    balance: int            # free_credits + paid_credits (read-only)
     auto_topup_threshold: int | None
     updated_at: datetime
 
@@ -21,17 +23,13 @@ class WalletTransactionOut(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(from_attributes=True)
 
     id: str
-    transaction_type: str
+    transaction_type: str   # usage | purchase
     credits_delta: int
     feature: str
     paystack_reference: str | None
     status: str | None
+    credit_type: str | None  # free | paid | mixed (usage rows only)
     created_at: datetime
-
-
-class PurchaseInitRequest(BaseModel):
-    # Credit package identifier — maps to an amount in kobo
-    package: str   # "starter" | "growth" | "topup"
 
 
 class PurchaseInitResponse(BaseModel):

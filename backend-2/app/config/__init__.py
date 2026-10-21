@@ -28,7 +28,15 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     MONO_SECRET_KEY: str = ""
     MONO_PUBLIC_KEY: str = ""
-    PAYSTACK_SECRET_KEY: str = ""
+
+    # Bachs payment provider
+    BACHS_API_KEY: str = ""             # sk_sandbox_... or sk_live_...
+    BACHS_WEBHOOK_SECRET: str = ""      # from Bachs Developer Portal
+
+    # AI Credit wallet
+    FREE_MONTHLY_CREDITS: int = 50          # free credits refreshed every calendar month
+    CREDIT_PRICE_NGN: int = 5               # ₦5 per credit
+    MIN_PURCHASE_NGN: int = 500             # minimum purchase amount
 
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:5173"
