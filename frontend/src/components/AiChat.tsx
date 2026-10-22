@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import RemixIcon from './RemixIcon'
+import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 
 /* ── Types ──────────────────────────────────────────────────────────── */
 interface Message {
@@ -7,8 +9,14 @@ interface Message {
   text: string
 }
 
+// Maps onto ChatMessage in the backend schema
+interface ApiHistory {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 /* ── Quick-action chips ─────────────────────────────────────────────── */
-const CHIPS = ['Spending this month', 'Estimate my tax', 'Pending consents']
+const CHIPS = ['Spending this month', 'Estimate my tax', 'Top expense categories']
 
 /* ── Idle nudge messages (cycle at intervals) ───────────────────────── */
 const NUDGES = [
@@ -33,6 +41,31 @@ function BotAvatar({ size = 32 }: { size?: number }) {
       }}
     >
       <img src="/logo.png" alt="FOID AI" style={{ width: size * 0.55, height: size * 0.55, objectFit: 'contain' }} />
+    </div>
+  )
+}
+
+/* ── Animated typing indicator ──────────────────────────────────────── */
+function TypingBubble() {
+  return (
+    <div className="flex gap-2.5 flex-row">
+      <BotAvatar size={32} />
+      <div
+        className="rounded-2xl px-4 py-3 flex items-center gap-1"
+        style={{ background: '#f0f0f0', borderBottomLeftRadius: 4, minWidth: 56 }}
+      >
+        {[0, 1, 2].map(i => (
+          <span
+            key={i}
+            className="w-2 h-2 rounded-full"
+            style={{
+              background: '#aaa',
+              display: 'inline-block',
+              animation: `bounce 1.2s ${i * 0.2}s infinite`,
+            }}
+          />
+        ))}
+      </div>
     </div>
   )
 }
@@ -71,18 +104,32 @@ function FabButton({ onClick, nudge }: { onClick: () => void; nudge: string | nu
 
 /* ── Main component ─────────────────────────────────────────────────── */
 export default function AiChat() {
-  const [open, setOpen]       = useState(false)
-  const [input, setInput]     = useState('')
-  const [nudge, setNudge]     = useState<string | null>(null)
+  const { user } = useAuth()
+  const firstName = user?.firstName || user?.first_name || 'there'
+
+  const [open, setOpen]         = useState(false)
+  const [input, setInput]       = useState('')
+  const [nudge, setNudge]       = useState<string | null>(null)
   const [nudgeIdx, setNudgeIdx] = useState(0)
+  const [typing, setTyping]     = useState(false)
+  const [creditsLeft, setCreditsLeft] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'ai',
-      text: "Hi Daniel — need a quick number, or want me to take you somewhere in the dashboard? I can also categorise a receipt if you snap one.",
+      text: `Hi ${firstName} 👋 — I'm your FOID AI assistant. Ask me about your spending, income, tax estimate, or credential status.`,
     },
   ])
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLInputElement>(null)
+
+  // Update greeting when user loads (it may be null on first render)
+  useEffect(() => {
+    setMessages([{
+      role: 'ai',
+      text: `Hi ${firstName} 👋 — I'm your FOID AI assistant. Ask me about your spending, income, tax estimate, or credential status.`,
+    }])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstName])
 
   /* Nudge interval — show a message every 20 s while closed */
   useEffect(() => {
@@ -90,10 +137,8 @@ export default function AiChat() {
     const id = setInterval(() => {
       setNudge(NUDGES[nudgeIdx % NUDGES.length])
       setNudgeIdx(i => i + 1)
-      /* auto-hide after 4 s */
       setTimeout(() => setNudge(null), 4000)
     }, 20_000)
-    /* show first nudge after 5 s on mount */
     const first = setTimeout(() => {
       setNudge(NUDGES[0])
       setTimeout(() => setNudge(null), 4000)
@@ -101,30 +146,68 @@ export default function AiChat() {
     return () => { clearInterval(id); clearTimeout(first) }
   }, [open, nudgeIdx])
 
-  /* Scroll to bottom whenever messages change */
+  /* Scroll to bottom whenever messages or typing indicator changes */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, open])
+  }, [messages, open, typing])
 
   /* Focus input when opened */
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 120)
   }, [open])
 
-  function send(text: string) {
-    if (!text.trim()) return
-    const userMsg: Message = { role: 'user', text: text.trim() }
-    const aiReply: Message = {
-      role: 'ai',
-      text: `You asked: "${text.trim()}". I'm working on a full answer — this is a demo build, so responses are mocked for now.`,
-    }
-    setMessages(prev => [...prev, userMsg, aiReply])
+  /* Build history array for the backend (last 20 messages, alternating roles) */
+  function buildHistory(current: Message[]): ApiHistory[] {
+    return current
+      .filter(m => m.role === 'user' || m.role === 'ai')
+      .map(m => ({
+        role: m.role === 'ai' ? 'assistant' : 'user',
+        content: m.text,
+      })) as ApiHistory[]
+  }
+
+  async function send(text: string) {
+    const trimmed = text.trim()
+    if (!trimmed || typing) return
+
+    const userMsg: Message = { role: 'user', text: trimmed }
+    const nextMessages = [...messages, userMsg]
+    setMessages(nextMessages)
     setInput('')
+    setTyping(true)
+
+    try {
+      const res = await api.post<{ reply: string; credits_remaining: number }>('/ledger/chat', {
+        message: trimmed,
+        history: buildHistory(messages), // history before this new message
+      })
+      setCreditsLeft(res.data.credits_remaining)
+      setMessages(prev => [...prev, { role: 'ai', text: res.data.reply }])
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
+      let errText = 'Sorry, something went wrong. Please try again.'
+      if (axiosErr.response?.status === 402) {
+        errText = '⚠️ You\'ve run out of AI credits. Top up in the AI Credit Wallet to continue.'
+      } else if (axiosErr.response?.data?.detail) {
+        errText = `Error: ${axiosErr.response.data.detail}`
+      }
+      setMessages(prev => [...prev, { role: 'ai', text: errText }])
+    } finally {
+      setTyping(false)
+    }
   }
 
   return (
     /* Fixed container — bottom-right corner, above everything */
     <div className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-50 flex flex-col items-end gap-3">
+
+      {/* bounce keyframes */}
+      <style>{`
+        @keyframes bounce {
+          0%, 60%, 100% { transform: translateY(0); }
+          30% { transform: translateY(-5px); }
+        }
+      `}</style>
 
       {/* ── Chat panel ── */}
       {open && (
@@ -143,15 +226,17 @@ export default function AiChat() {
             style={{ background: PURPLE }}
           >
             <div className="flex items-center gap-3">
-              <img src="/logo.png" alt="FOID" style={{ width: 28, height: 28, objectFit: 'contain' }} />
+              <img src="/logo-white.png" alt="FOID" style={{ width: 28, height: 28, objectFit: 'contain' }} />
               <div>
                 <div className="text-white font-extrabold text-[17px] leading-tight"
                   style={{ fontFamily: "'Neue Machina', sans-serif" }}>
-                  Foid
+                  Foid AI
                 </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
-                  <span className="text-[12px] font-semibold text-green-300">Online · AI credits active</span>
+                  <span className="text-[12px] font-semibold text-green-300">
+                    Online{creditsLeft !== null ? ` · ${creditsLeft} credits` : ' · AI credits active'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -171,7 +256,7 @@ export default function AiChat() {
               <div key={i} className={`flex gap-2.5 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                 {m.role === 'ai' && <BotAvatar size={32} />}
                 <div
-                  className="rounded-2xl px-4 py-3 text-[13.5px] leading-relaxed max-w-[80%]"
+                  className="rounded-2xl px-4 py-3 text-[13.5px] leading-relaxed max-w-[80%] whitespace-pre-wrap"
                   style={
                     m.role === 'ai'
                       ? { background: '#f0f0f0', color: '#3a3a3a', borderBottomLeftRadius: 4 }
@@ -182,6 +267,7 @@ export default function AiChat() {
                 </div>
               </div>
             ))}
+            {typing && <TypingBubble />}
             <div ref={bottomRef} />
           </div>
 
@@ -191,7 +277,8 @@ export default function AiChat() {
               <button
                 key={chip}
                 onClick={() => send(chip)}
-                className="text-[12px] font-semibold px-3 py-1.5 rounded-full border border-neutral-200 text-neutral-700 hover:bg-neutral-50 transition-colors whitespace-nowrap"
+                disabled={typing}
+                className="text-[12px] font-semibold px-3 py-1.5 rounded-full border border-neutral-200 text-neutral-700 hover:bg-neutral-50 transition-colors whitespace-nowrap disabled:opacity-40"
               >
                 {chip}
               </button>
@@ -209,14 +296,16 @@ export default function AiChat() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && send(input)}
-                placeholder="Ask about your finances, identity and credit score"
-                className="flex-1 bg-transparent text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none"
+                disabled={typing}
+                placeholder="Ask about your finances, identity or credit score"
+                className="flex-1 bg-transparent text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none disabled:opacity-50"
               />
               <button
                 onClick={() => send(input)}
+                disabled={typing || !input.trim()}
                 aria-label="Send"
-                className="shrink-0 transition-opacity"
-                style={{ opacity: input.trim() ? 1 : 0.35 }}
+                className="shrink-0 transition-opacity disabled:opacity-30"
+                style={{ opacity: input.trim() && !typing ? 1 : 0.35 }}
               >
                 <RemixIcon name="ri-send-plane-fill" size={20} color={PURPLE} clickable />
               </button>

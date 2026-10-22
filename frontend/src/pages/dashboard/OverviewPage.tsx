@@ -3,6 +3,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import RemixIcon from '@/components/RemixIcon'
 import StatCard from '@/components/StatCard'
@@ -10,6 +11,7 @@ import IncomeExpenseChart from '@/components/IncomeExpenseChart'
 import { useCredential } from '@/contexts/CredentialContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useMonoData } from '@/hooks/useMonoData'
+import { api } from '@/lib/api'
 import type { CredentialState } from '@/types/foid'
 
 /* ── Brand colours ──────────────────────────────────────────────────── */
@@ -97,13 +99,21 @@ function SpendingDonut({ segs }: { segs: DonutSeg[] }) {
 
 /* ── Page ───────────────────────────────────────────────────────────── */
 export default function OverviewPage() {
-  const { credential } = useCredential()
+  const { credential, loading: credLoading } = useCredential()
   const { user } = useAuth()
   const navigate = useNavigate()
   const stateMeta = STATE_META[credential.state]
 
   const isVerified = user?.email_verified ?? false
   const { banks, mtd, chartData, spendByCategory, loading } = useMonoData(isVerified)
+
+  // ── Live wallet balance ──────────────────────────────────────────────
+  const [walletBalance, setWalletBalance] = useState<number | null>(null)
+  useEffect(() => {
+    api.get<{ balance: number }>('/wallet')
+      .then(r => setWalletBalance(r.data.balance))
+      .catch(() => setWalletBalance(0))
+  }, [])
 
   // Build donut segments from real spend-by-category
   const totalSpend = spendByCategory.reduce((s, c) => s + c.value, 0)
@@ -164,39 +174,59 @@ export default function OverviewPage() {
           subColor="text-brand-500 font-semibold"
           icon="ri-bank-line"
         />
-        <StatCard label="Identity Verification" value="Verified"
-          sub="Tier 2 · Full KYC complete" subColor="text-neutral-400" icon="ri-shield-user-line" />
-        <StatCard label="Active Credentials" value="156"
-          sub="Shared across 6 platforms" subColor="text-green-600 font-semibold" icon="ri-book-read-fill" />
-        <StatCard label="AI Credit Balance" value="8420"
-          sub="Covers ~52 more days" subColor="text-neutral-400" icon="ri-quill-pen-fill" />
+        <StatCard
+          label="Identity Verification"
+          value={isVerified ? 'Verified' : 'Unverified'}
+          sub={isVerified ? 'Email & identity confirmed' : 'Complete KYC to verify'}
+          subColor={isVerified ? 'text-green-600 font-semibold' : 'text-amber-500 font-semibold'}
+          icon="ri-shield-user-line"
+        />
+        <StatCard
+          label="Active Credentials"
+          value={credLoading ? '…' : (credential.state === 'active' ? '1' : '0')}
+          sub={credLoading ? 'Loading…' : (credential.state === 'active' ? 'Credential is active' : `Credential ${credential.state.replace('_', ' ')}`)}
+          subColor={credential.state === 'active' ? 'text-green-600 font-semibold' : 'text-amber-500 font-semibold'}
+          icon="ri-book-read-fill"
+        />
+        <StatCard
+          label="AI Credit Balance"
+          value={walletBalance === null ? '…' : String(walletBalance)}
+          sub={walletBalance !== null ? `~${Math.floor(walletBalance)} messages remaining` : 'Loading…'}
+          subColor="text-neutral-400"
+          icon="ri-quill-pen-fill"
+        />
       </div>
 
       {/* ── Row 2 — financial stat cards (live Mono data) ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Monthly Income"
-          value={loading ? '…' : (mtd.income > 0 ? naira(mtd.income) : '—')}
+          value={loading ? '…' : (mtd.income > 0 ? naira(mtd.income) : '₦0')}
           sub={mtd.income > 0 ? 'This month · from connected banks' : 'Connect a bank to see income'}
           subColor="text-neutral-400"
           icon="₦"
         />
         <StatCard
           label="Monthly Expense"
-          value={loading ? '…' : (mtd.expense > 0 ? naira(mtd.expense) : '—')}
+          value={loading ? '…' : (mtd.expense > 0 ? naira(mtd.expense) : '₦0')}
           sub={mtd.expense > 0 ? `${mtd.income > 0 ? Math.round((mtd.expense / mtd.income) * 100) : 0}% of income` : 'No expense data yet'}
           subColor="text-neutral-400"
           icon="ri-hand-coin-line"
         />
         <StatCard
           label="Estimated Tax (7.5%)"
-          value={loading ? '…' : (mtd.tax > 0 ? naira(mtd.tax) : '—')}
+          value={loading ? '…' : naira(mtd.tax)}
           sub="On net profit this month"
           subColor="text-neutral-400"
           icon="ri-percent-line"
         />
-        <StatCard label="Verification Requests" value="3"
-          sub="This week · 1 needs your action" subColor="text-neutral-400" icon="ri-profile-fill" />
+        <StatCard
+          label="Verification Requests"
+          value="0"
+          sub="No pending requests"
+          subColor="text-neutral-400"
+          icon="ri-profile-fill"
+        />
       </div>
 
       {/* ── Charts row ── */}

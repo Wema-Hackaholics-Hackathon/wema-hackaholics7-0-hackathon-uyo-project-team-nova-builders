@@ -417,13 +417,15 @@ async def ledger_chat(
     mono_income_60d: float = 0.0
     mono_expense_60d: float = 0.0
     mono_cat_totals: dict[str, float] = {}
+    mono_fetch_errors: list[str] = []   # track per-bank failures so the AI knows
 
     for bank in connected_banks:
         try:
             data = await mono_service.get_transactions(
                 bank.mono_account_id, start=start_str, end=end_str, limit=200
             )
-            for tx in data.get("data", []):
+            txs = data.get("data", [])
+            for tx in txs:
                 naira = tx.get("amount", 0) / 100
                 tx_type = tx.get("type", "")
                 cat = tx.get("category") or "Other"
@@ -440,8 +442,12 @@ async def ledger_chat(
                     "category": cat,
                     "bank": bank.name,
                 })
-        except (_httpx.HTTPStatusError, _httpx.TimeoutException, Exception):
-            continue
+            if not txs:
+                mono_fetch_errors.append(f"{bank.name}: returned 0 transactions (bank may have no activity in this window)")
+            print(f"[AI chat] Mono {bank.name}: {len(txs)} transactions fetched")
+        except Exception as _e:
+            mono_fetch_errors.append(f"{bank.name}: fetch failed ({type(_e).__name__})")
+            print(f"[AI chat] Mono {bank.name}: fetch error — {_e}")
 
     # Sort Mono transactions newest first
     mono_tx_all.sort(key=lambda t: t["date"], reverse=True)
@@ -467,7 +473,27 @@ async def ledger_chat(
         merged_cats[cat] = merged_cats.get(cat, 0.0) + amt
     top_cats = sorted(merged_cats.items(), key=lambda x: x[1], reverse=True)[:5]
 
-    # Recent 20 transactions — show both ledger + Mono, newest first
+    # Month-by-month breakdown from Mono transactions (for history questions)
+    from collections import defaultdict as _dd
+    mono_monthly: dict[str, dict[str, float]] = _dd(lambda: {"income": 0.0, "expense": 0.0})
+    for t in mono_tx_all:
+        ym = t["date"][:7]   # "YYYY-MM"
+        if t["type"] == "credit":
+            mono_monthly[ym]["income"] += t["naira"]
+        else:
+            mono_monthly[ym]["expense"] += t["naira"]
+
+    mono_monthly_lines = ""
+    if mono_monthly:
+        sorted_months = sorted(mono_monthly.keys())
+        mono_monthly_lines = "\n".join(
+            f"  {ym}: IN ₦{v['income']:,.0f}  OUT ₦{v['expense']:,.0f}  NET ₦{v['income'] - v['expense']:,.0f}"
+            for ym, v in [(m, mono_monthly[m]) for m in sorted_months]
+        )
+    else:
+        mono_monthly_lines = "  (no Mono transaction data in the last 60 days)"
+
+    # Recent 20 transactions — ledger + Mono, newest first
     ledger_lines = [
         f"  {e.entry_date} | {'IN ' if e.entry_type == 'income' else 'OUT'} | ₦{e.amount:,.0f} | {e.category} | {e.description} [Ledger]"
         for e in all_entries[:10]
@@ -476,11 +502,15 @@ async def ledger_chat(
         f"  {t['date']} | {'IN ' if t['type'] == 'credit' else 'OUT'} | ₦{t['naira']:,.0f} | {t['category']} | {t['narration']} [{t['bank']} via Mono]"
         for t in mono_tx_all[:10]
     ]
-    recent_lines = "\n".join(ledger_lines + mono_lines) or "  (no transactions yet)"
+    recent_lines = "\n".join(ledger_lines + mono_lines) or "  (no transactions in ledger or Mono)"
 
     top_cat_lines = "\n".join(f"  {cat}: ₦{amt:,.0f}" for cat, amt in top_cats) or "  (none)"
 
     connected_bank_names = ", ".join(b.name for b in connected_banks) if connected_banks else "none"
+    mono_errors_block = (
+        "\n=== MONO FETCH WARNINGS ===\n" + "\n".join(f"  {e}" for e in mono_fetch_errors)
+        if mono_fetch_errors else ""
+    )
 
     system_prompt = f"""You are FOID AI, a smart personal financial and identity assistant built into the FOID platform for Wema Bank.
 
@@ -492,30 +522,34 @@ Identity verified: {"Yes" if cred_claims.get("identity_verified") else "No"}
 Credential state: {cred_state}
 AI credit balance: {wallet.balance} credits
 
-=== CONNECTED BANKS ===
-{connected_bank_names}
-Mono data window: last 60 days ({start_str} to {end_str})
-
+=== CONNECTED BANKS (via Mono Open Banking) ===
+Banks: {connected_bank_names}
+Data window: last 60 days ({start_str} to {end_str})
+{mono_errors_block}
 === THIS MONTH ({today.strftime("%B %Y")}) ===
-Income (Ledger + Mono):   ₦{total_mtd_income:,.0f}
-Expenses (Ledger + Mono): ₦{total_mtd_expense:,.0f}
-Net profit:               ₦{float(mtd_net):,.0f}
-Estimated tax (7.5%):     ₦{float(mtd_tax):,.0f}
+Income  (Ledger + Mono): ₦{total_mtd_income:,.0f}
+Expenses(Ledger + Mono): ₦{total_mtd_expense:,.0f}
+Net:                     ₦{float(mtd_net):,.0f}
+Est. tax (7.5%):         ₦{float(mtd_tax):,.0f}
 
-=== TOP EXPENSE CATEGORIES (all time) ===
+=== MONTH-BY-MONTH (Mono Open Banking, last 60 days) ===
+{mono_monthly_lines}
+
+=== TOP EXPENSE CATEGORIES (Ledger + Mono, all time) ===
 {top_cat_lines}
 
-=== RECENT TRANSACTIONS (last 20) ===
+=== RECENT TRANSACTIONS (last 20, Ledger + Mono) ===
 {recent_lines}
 
 === YOUR ROLE ===
 - You help {current_user.first_name} understand their personal finances, spending patterns, income trends, tax estimates, credential status, and how to use FOID.
 - You are warm, concise, and practical. Keep answers under 200 words unless a detailed breakdown is explicitly requested.
 - You ONLY answer questions about: personal finances, budgeting, tax, spending, income, FOID credentials, identity verification, connected banks, transactions, and how to use FOID features.
-- You MUST politely decline and redirect to finances if the user asks you to: write code, build programs, create images, play games, roleplay, give legal advice, discuss politics, or do ANYTHING unrelated to personal finance and FOID. Example: "I'm your FOID financial assistant — I can't help with that, but I can help you review your spending!"
+- You MUST politely decline and redirect to finances if the user asks you to: write code, build programs, create images, play games, roleplay, give legal advice, discuss politics, or do ANYTHING unrelated to personal finance and FOID.
+- CRITICAL: Never say "no transactions recorded" or "no data" if connected banks are listed above. If Mono returned 0 transactions, say the bank is connected but had no activity in the 60-day window — do NOT suggest the user connect a bank they have already connected.
+- If MONO FETCH WARNINGS are present, tell the user honestly that there was a temporary issue fetching from that bank and they can retry.
 - Never make up transaction data. Only use the figures provided above.
 - Format numbers with ₦ and commas. Be encouraging when finances look healthy; be honest but constructive when they don't.
-- If the user has no data yet, guide them to upload receipts or connect a bank account.
 - You have access to real Open Banking transactions from the user's connected banks via Mono. Use them to give specific, data-driven advice."""
 
     # Build history for multi-turn context (cap at last 10 turns = 20 messages)

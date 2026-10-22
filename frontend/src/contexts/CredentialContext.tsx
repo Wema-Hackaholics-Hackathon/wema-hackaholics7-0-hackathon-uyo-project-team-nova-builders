@@ -15,26 +15,28 @@ import {
   createContext,
   useContext,
   useState,
+  useEffect,
   useCallback,
   useRef,
   type ReactNode,
 } from 'react'
 import type { CredentialState, FoidCredential, Notification } from '../types/foid'
+import { api } from '../lib/api'
 
-/* ── Seed credential ────────────────────────────────────────────────── */
-const INITIAL_CREDENTIAL: FoidCredential = {
-  id: 'foid_cr_8x291a...e7d40',
-  holder: 'Daniel Afolabi',
+/* ── Fallback credential used only while the backend fetch is in-flight ── */
+const EMPTY_CREDENTIAL: FoidCredential = {
+  id: '',
+  holder: '',
   state: 'active',
   claims: {
-    identity_verified: true,
-    bvn_validated: true,
-    age_over_18: true,
-    income_band: 'high',
-    account_stability: 'stable',
-    repayment_reliability: 'reliable',
+    identity_verified: false,
+    bvn_validated: false,
+    age_over_18: false,
+    income_band: 'low',
+    account_stability: 'poor',
+    repayment_reliability: 'poor',
   },
-  issued_at: '2026-07-01T08:00:00Z',
+  issued_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 }
 
@@ -138,6 +140,7 @@ const STATE_CHANGE_LABEL: Record<CredentialState, string> = {
 /* ── Context shape ──────────────────────────────────────────────────── */
 interface CredentialContextValue {
   credential: FoidCredential
+  loading: boolean
   notifications: Notification[]
   unreadCount: number
   triggerEvent: (event: TriggerEvent) => void
@@ -149,9 +152,18 @@ const CredentialContext = createContext<CredentialContextValue | null>(null)
 
 /* ── Provider ───────────────────────────────────────────────────────── */
 export function CredentialProvider({ children }: { children: ReactNode }) {
-  const [credential, setCredential] = useState<FoidCredential>(INITIAL_CREDENTIAL)
+  const [credential, setCredential] = useState<FoidCredential>(EMPTY_CREDENTIAL)
+  const [loading, setLoading] = useState(true)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const notifIdRef = useRef(0)
+
+  // ── Fetch real credential from backend on mount ──────────────────────
+  useEffect(() => {
+    api.get<FoidCredential>('/credentials/me')
+      .then(r => setCredential(r.data))
+      .catch(() => { /* leave EMPTY_CREDENTIAL in place — not yet issued */ })
+      .finally(() => setLoading(false))
+  }, [])
 
   const triggerEvent = useCallback((event: TriggerEvent) => {
     const meta = TRIGGER_EVENTS.find(e => e.event === event)
@@ -207,7 +219,7 @@ export function CredentialProvider({ children }: { children: ReactNode }) {
   const unreadCount = notifications.filter(n => !n.read).length
 
   return (
-    <CredentialContext.Provider value={{ credential, notifications, unreadCount, triggerEvent, markAllRead, markRead }}>
+    <CredentialContext.Provider value={{ credential, loading, notifications, unreadCount, triggerEvent, markAllRead, markRead }}>
       {children}
     </CredentialContext.Provider>
   )

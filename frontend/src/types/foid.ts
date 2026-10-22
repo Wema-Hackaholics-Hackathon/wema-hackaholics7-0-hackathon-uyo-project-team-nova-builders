@@ -6,6 +6,11 @@ export interface CredentialClaims {
   identity_verified: boolean
   bvn_validated: boolean
   age_over_18: boolean
+  // Admin-verified flags (match backend CredentialClaimsOut)
+  nin_verified?: boolean
+  phone_verified?: boolean
+  bill_verified?: boolean
+  email_verified?: boolean
   income_band: 'low' | 'mid' | 'high'
   account_stability: 'stable' | 'variable' | 'poor'
   repayment_reliability: 'reliable' | 'variable' | 'poor'
