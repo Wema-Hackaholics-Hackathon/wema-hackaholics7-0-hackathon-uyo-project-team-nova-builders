@@ -3,6 +3,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts'
+import { useNavigate } from 'react-router-dom'
 import RemixIcon from '@/components/RemixIcon'
 import StatCard from '@/components/StatCard'
 import IncomeExpenseChart from '@/components/IncomeExpenseChart'
@@ -140,6 +141,7 @@ const STATE_META: Record<CredentialState, { label: string; color: string; bg: st
 export default function OverviewPage() {
   const { credential } = useCredential()
   const { user } = useAuth()
+  const navigate = useNavigate()
   const stateMeta = STATE_META[credential.state]
 
   return (
@@ -151,7 +153,10 @@ export default function OverviewPage() {
           <h1 className="text-[22px] md:text-[26px] font-bold tracking-tight text-neutral-900">Welcome back, {user?.firstName ?? 'there'}</h1>
           <p className="text-neutral-500 mt-1 text-[13.5px]">Here's a snapshot of your identity, credentials, and business finances</p>
         </div>
-        <button className="flex items-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-full font-semibold text-[14px] transition-colors shrink-0 w-full md:w-auto justify-center">
+        <button
+          onClick={() => navigate('/dashboard/banks')}
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-full font-semibold text-[14px] transition-colors shrink-0 w-full md:w-auto justify-center"
+        >
           + Connect a Bank
         </button>
       </div>

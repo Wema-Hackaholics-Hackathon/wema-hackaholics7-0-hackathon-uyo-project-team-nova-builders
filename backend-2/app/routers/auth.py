@@ -22,7 +22,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession  # has .exec() unlike sqlalchemy's AsyncSession
 
 from app.config import get_db, get_settings
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_verified_email
 from app.core.security import (
     create_access_token,
     create_refresh_token_expiry,
@@ -333,9 +333,28 @@ async def logout(
 @router.get("/me", response_model=UserOut)
 async def me(
     user: Annotated[User, Depends(get_current_user)],
-) -> User:
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserOut:
     """Return the profile of the currently authenticated user."""
-    return user
+    cred_result = await db.exec(select(Credential).where(Credential.user_id == user.id))
+    cred = cred_result.first()
+    email_verified = bool(cred and cred.claims and cred.claims.get("email_verified", False))  # type: ignore[union-attr]
+    return UserOut(
+        id=user.id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        middle_name=user.middle_name,
+        nin=user.nin,
+        bvn=user.bvn,
+        phone=user.phone,
+        address=user.address,
+        proof_of_address_url=user.proof_of_address_url,
+        avatar_url=user.avatar_url,
+        liveness_selfie_url=user.liveness_selfie_url,
+        email=user.email,
+        created_at=user.created_at,
+        email_verified=email_verified,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +364,7 @@ async def me(
 @router.patch("/me/bvn", response_model=UserOut)
 async def submit_bvn(
     body: BvnRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_verified_email)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     """Store the user's BVN (mocked verification) and mark bvn_validated=True."""
@@ -373,7 +392,7 @@ async def submit_bvn(
 @router.patch("/me/phone", response_model=UserOut)
 async def submit_phone(
     body: PhoneRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_verified_email)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     """Store the user's phone number."""
@@ -517,7 +536,7 @@ async def identity_summary(
 @router.patch("/me/address", response_model=UserOut)
 async def update_address(
     body: AddressRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_verified_email)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     """Store the user's residential address."""
@@ -535,7 +554,7 @@ async def update_address(
 @router.post("/me/address/proof", response_model=UserOut)
 async def upload_proof_of_address(
     file: Annotated[UploadFile, File(description="Utility bill or address document — JPEG, PNG, WebP or PDF, max 5 MB")],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_verified_email)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     """Upload a proof-of-address document (e.g. NEPA/PHCN bill, water bill).
@@ -578,7 +597,7 @@ async def upload_proof_of_address(
 @router.post("/me/avatar", response_model=UserOut)
 async def upload_avatar(
     file: Annotated[UploadFile, File(description="Profile picture — JPEG, PNG or WebP, max 2 MB")],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_verified_email)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     """Upload a profile picture for the authenticated user.
@@ -619,7 +638,7 @@ async def upload_avatar(
 @router.patch("/me/password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     body: ChangePasswordRequest,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_verified_email)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
     """Verify current password then hash and store the new one."""

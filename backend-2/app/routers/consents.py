@@ -15,7 +15,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ..config import get_db
-from ..core.dependencies import get_current_user
+from ..core.dependencies import get_current_user, require_verified_email
 from ..models.consent import Consent
 from ..models.user import User
 from ..schemas.consent import ConsentCreate, ConsentOut, ConsentUpdate
@@ -40,7 +40,7 @@ async def list_consents(
 @router.post("", response_model=ConsentOut, status_code=status.HTTP_201_CREATED)
 async def create_consent(
     body: ConsentCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> ConsentOut:
     """Create a new consent request (platform sends this on behalf of user)."""
@@ -62,7 +62,7 @@ async def create_consent(
 async def update_consent(
     consent_id: str,
     body: ConsentUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> ConsentOut:
     """Approve or revoke a consent. Deny = revoke immediately."""

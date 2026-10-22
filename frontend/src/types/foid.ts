@@ -57,6 +57,7 @@ export interface User {
   address?: string | null
   email: string
   created_at: string
+  email_verified: boolean
   // camelCase aliases set by AuthContext.normaliseUser()
   firstName: string
   lastName: string

@@ -17,6 +17,8 @@ interface AuthContextType {
   }) => Promise<boolean>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
+  verifyEmail: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>
+  resendVerification: (email: string) => Promise<{ ok: boolean; error?: string }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -28,6 +30,7 @@ function normaliseUser(raw: Record<string, unknown>): User {
     lastName: (raw.last_name as string) ?? '',
     middleName: (raw.middle_name as string | null) ?? null,
     createdAt: (raw.created_at as string) ?? '',
+    email_verified: (raw.email_verified as boolean) ?? false,
   }
 }
 
@@ -117,6 +120,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const verifyEmail = useCallback(async (
+    email: string,
+    code: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      await api.post('/auth/verify-email', { email, code })
+      // Refresh user so email_verified flips to true in state
+      await refreshUser()
+      return { ok: true }
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? 'Invalid or expired code'
+      return { ok: false, error: msg }
+    }
+  }, [refreshUser])
+
+  const resendVerification = useCallback(async (
+    email: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      await api.post('/auth/resend-verification', { email })
+      return { ok: true }
+    } catch {
+      return { ok: false, error: 'Could not resend code. Please try again.' }
+    }
+  }, [])
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -126,6 +157,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signup,
       logout,
       refreshUser,
+      verifyEmail,
+      resendVerification,
     }}>
       {children}
     </AuthContext.Provider>

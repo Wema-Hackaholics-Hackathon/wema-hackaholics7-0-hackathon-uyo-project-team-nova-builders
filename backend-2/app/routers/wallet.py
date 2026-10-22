@@ -41,6 +41,7 @@ from ..schemas.wallet import (
     WalletOut,
     WalletTransactionOut,
 )
+from ..core.dependencies import require_verified_email
 from ..services import bachs_service
 from ..services.wallet_service import apply_monthly_refresh
 
@@ -98,7 +99,7 @@ class WalletWithHistory(WalletOut):
 
 @router.get("", response_model=WalletWithHistory)
 async def get_wallet(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> WalletWithHistory:
     """Return wallet balance breakdown (free + paid) and full transaction history.
@@ -132,7 +133,7 @@ async def get_wallet(
 @router.post("/initiate-purchase", response_model=PurchaseInitResponse)
 async def initiate_purchase(
     body: PurchaseInitRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> PurchaseInitResponse:
     """Create a Bachs checkout session for a custom NGN amount.
@@ -277,7 +278,7 @@ async def bachs_webhook(
 @router.post("/auto-topup", response_model=WalletOut)
 async def set_auto_topup(
     body: AutoTopupRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> WalletOut:
     """Set or clear the auto top-up threshold (null = disabled)."""

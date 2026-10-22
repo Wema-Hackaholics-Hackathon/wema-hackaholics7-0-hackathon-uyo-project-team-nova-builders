@@ -2,7 +2,7 @@
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +15,7 @@ from .utils.cache import ping as redis_ping
 from .utils.limiter import limiter
 
 _CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60   # run every 6 hours
+_UNVERIFIED_GRACE_DAYS = 3                  # delete unverified accounts after 3 days
 
 
 async def _token_cleanup_loop() -> None:
@@ -26,6 +27,13 @@ async def _token_cleanup_loop() -> None:
     while True:
         try:
             now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+            cutoff = (
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - timedelta(days=_UNVERIFIED_GRACE_DAYS)
+            ).isoformat()
+            # Single session for the entire cleanup run — fixes the stale-session bug
+            # where the previous code called db.execute() after the `async with` block
+            # had already closed the session.
             async with _get_session_factory()() as db:
                 for stmt in (
                     "DELETE FROM refresh_tokens WHERE revoked = 1 OR expires_at < :now",
@@ -33,16 +41,49 @@ async def _token_cleanup_loop() -> None:
                     "DELETE FROM email_verification_tokens WHERE used = 1 OR expires_at < :now",
                 ):
                     await db.execute(text(stmt), {"now": now_iso})
+                # Delete users whose email was never verified after the grace period.
+                await db.execute(
+                    text("""
+                        DELETE FROM users
+                        WHERE id IN (
+                            SELECT c.user_id FROM credentials c
+                            WHERE json_extract(c.claims, '$.email_verified') = 0
+                              AND (SELECT created_at FROM users WHERE id = c.user_id) < :cutoff
+                        )
+                    """),
+                    {"cutoff": cutoff},
+                )
                 await db.commit()
-            print("[cleanup] expired tokens purged", flush=True)
+            print("[cleanup] expired tokens purged + stale unverified accounts removed", flush=True)
         except Exception as exc:
             print(f"[cleanup] error: {exc}", flush=True)
         await asyncio.sleep(_CLEANUP_INTERVAL_SECONDS)
 
 
+async def _enable_wal_mode() -> None:
+    """Enable SQLite WAL journal mode.
+
+    WAL allows concurrent readers + one writer, eliminating 'database is locked'
+    errors that occur when the background cleanup task and a request handler try
+    to write at the same time under the default DELETE journal mode.
+    Only runs for SQLite databases — silently skipped otherwise.
+    """
+    from sqlalchemy import text
+    from .config import _get_session_factory, get_settings
+
+    if not get_settings().DATABASE_URL.startswith("sqlite"):
+        return
+    async with _get_session_factory()() as db:
+        await db.execute(text("PRAGMA journal_mode=WAL"))
+        await db.execute(text("PRAGMA synchronous=NORMAL"))
+        await db.commit()
+    print("  SQLite   : WAL journal mode enabled", flush=True)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_db()
+    await _enable_wal_mode()
     db_ok = await check_db()
     redis_ok = await redis_ping()
     print(f"  Database : {'✓ connected' if db_ok else '✗ unreachable'}")

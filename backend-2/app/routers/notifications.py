@@ -7,7 +7,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ..config import get_db
-from ..core.dependencies import get_current_user
+from ..core.dependencies import get_current_user, require_verified_email
 from ..models.notification import Notification
 from ..models.user import User
 from ..schemas.notification import NotificationOut
@@ -32,7 +32,7 @@ async def list_notifications(
 
 @router.patch("/read-all", status_code=status.HTTP_204_NO_CONTENT)
 async def mark_all_read(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Mark every unread notification as read."""
@@ -52,7 +52,7 @@ async def mark_all_read(
 @router.patch("/{notification_id}/read", response_model=NotificationOut)
 async def mark_notification_read(
     notification_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> NotificationOut:
     """Mark a single notification as read."""

@@ -20,7 +20,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ..config import get_db
-from ..core.dependencies import get_current_user
+from ..core.dependencies import get_current_user, require_verified_email
 from ..models.connected_bank import ConnectedBank
 from ..models.user import User
 from ..schemas.bank import ConnectedBankOut, ExchangeTokenRequest, TransactionOut
@@ -50,7 +50,7 @@ async def _get_bank_or_404(bank_id: str, user: User, db: AsyncSession) -> Connec
 @router.post("/exchange-token", response_model=ConnectedBankOut, status_code=status.HTTP_201_CREATED)
 async def exchange_token(
     body: ExchangeTokenRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectedBankOut:
     """Exchange a Mono Connect code for a permanent account ID and store it."""
@@ -133,7 +133,7 @@ async def list_connected_banks(
 @router.post("/{bank_id}/sync", response_model=ConnectedBankOut)
 async def sync_bank(
     bank_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectedBankOut:
     """Re-fetch account details from Mono and update the stored record."""
@@ -167,7 +167,7 @@ async def sync_bank(
 @router.delete("/{bank_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def disconnect_bank(
     bank_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Remove a connected bank record."""

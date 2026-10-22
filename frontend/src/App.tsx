@@ -13,6 +13,7 @@ import ReportsPage from './pages/dashboard/ReportsPage.tsx'
 import ProfileSettingsPage from './pages/dashboard/ProfileSettingsPage.tsx'
 import SignupPage from './pages/auth/SignupPage.tsx'
 import LoginPage from './pages/auth/LoginPage.tsx'
+import ForgotPasswordPage from './pages/auth/ForgotPasswordPage.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import LandingPage from './pages/LandingPage.tsx'
 import { CredentialProvider } from './contexts/CredentialContext.tsx'
@@ -28,6 +29,7 @@ export default function App() {
       {/* Auth pages */}
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
       <Route path="/dashboard" element={
         <ProtectedRoute>

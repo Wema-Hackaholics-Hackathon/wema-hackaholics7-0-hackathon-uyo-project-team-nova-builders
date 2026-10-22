@@ -18,6 +18,7 @@
     "vite": "^8.1.1"
   },
   "dependencies": {
+    "@mono.co/connect.js": "^2.3.0",
     "axios": "^1.20.0",
     "framer-motion": "^12.42.2",
     "react": "^19.2.7",

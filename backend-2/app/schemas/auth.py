@@ -89,6 +89,8 @@ class UserOut(BaseModel):
     liveness_selfie_url: str | None
     email: str
     created_at: datetime
+    # Derived from credential claims — True once POST /auth/verify-email succeeds
+    email_verified: bool = False
 
 
 class BvnRequest(BaseModel):

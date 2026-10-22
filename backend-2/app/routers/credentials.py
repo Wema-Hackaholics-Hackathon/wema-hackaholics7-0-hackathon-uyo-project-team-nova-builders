@@ -7,7 +7,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ..config import get_db
-from ..core.dependencies import get_current_user
+from ..core.dependencies import get_current_user, require_verified_email
 from ..models.credential import Credential
 from ..models.user import User
 from ..schemas.credential import CredentialOut, TriggerRequest, TriggerResponse
@@ -38,7 +38,7 @@ async def get_my_credential(
 @router.post("/trigger", response_model=TriggerResponse)
 async def trigger_event(
     body: TriggerRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> TriggerResponse:
     """Apply a trigger event to the credential.

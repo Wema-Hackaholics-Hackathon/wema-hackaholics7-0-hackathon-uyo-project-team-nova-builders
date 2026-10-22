@@ -26,7 +26,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ..config import get_db, get_settings
-from ..core.dependencies import get_current_user
+from ..core.dependencies import get_current_user, require_verified_email
 from ..models.ledger_entry import LedgerEntry
 from ..models.user import User
 from ..models.wallet import Wallet
@@ -58,7 +58,7 @@ async def _get_wallet(user_id: str, db: AsyncSession) -> Wallet:
 @router.post("/upload", response_model=LedgerEntryOut, status_code=status.HTTP_201_CREATED)
 async def upload_receipt(
     file: Annotated[UploadFile, File(description="Receipt image or PDF, max 10 MB")],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> LedgerEntryOut:
     """Upload a receipt, run Groq OCR, persist a LedgerEntry, deduct 4 credits."""
@@ -277,7 +277,7 @@ async def export_pdf(
 @router.post("/manual", response_model=LedgerEntryOut, status_code=status.HTTP_201_CREATED)
 async def create_manual_entry(
     body: LedgerEntryCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> LedgerEntryOut:
     """Add a ledger entry manually (no file upload). No credit cost."""
@@ -301,7 +301,7 @@ async def create_manual_entry(
 @router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_ledger_entry(
     entry_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a ledger entry owned by the current user."""
@@ -323,7 +323,7 @@ async def delete_ledger_entry(
 async def update_ledger_entry(
     entry_id: str,
     body: LedgerEntryUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> LedgerEntryOut:
     """Edit a ledger entry (description, category, amount, entry_type, entry_date)."""
@@ -357,7 +357,7 @@ async def update_ledger_entry(
 @router.post("/chat", response_model=ChatResponse)
 async def ledger_chat(
     body: ChatRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_email),
     db: AsyncSession = Depends(get_db),
 ) -> ChatResponse:
     """AI chat about the user's business finances and identity. Costs 1 credit."""
