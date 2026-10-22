@@ -5,6 +5,7 @@ import OverviewPage from './pages/dashboard/OverviewPage.tsx'
 import MyIdentityPage from './pages/dashboard/MyIdentityPage.tsx'
 import VerificationCredentialsPage from './pages/dashboard/VerificationCredentialsPage.tsx'
 import ConnectedBankPage from './pages/dashboard/ConnectedBankPage.tsx'
+import BankTransactionsPage from './pages/dashboard/BankTransactionsPage.tsx'
 import ConsentPage from './pages/dashboard/ConsentPage.tsx'
 import BusinessLedger from './pages/dashboard/BusinessLedgerPage.tsx'
 import LedgerHistory from './pages/dashboard/LedgerHistoryPage.tsx'
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="identity" element={<MyIdentityPage />} />
         <Route path="credentials" element={<VerificationCredentialsPage />} />
         <Route path="banks" element={<ConnectedBankPage />} />
+        <Route path="banks/:bankId/transactions" element={<BankTransactionsPage />} />
         <Route path="consents" element={<ConsentPage />} />
         <Route path="ledger" element={<BusinessLedger />} />
         <Route path="history" element={<LedgerHistory />} />

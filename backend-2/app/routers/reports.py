@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import csv
 import io
+
+from ..utils.pdf_utils import draw_foid_header
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -22,8 +24,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ..config import get_db
 from ..core.dependencies import get_current_user
+from ..models.connected_bank import ConnectedBank
 from ..models.ledger_entry import LedgerEntry
 from ..models.user import User
+from ..services import mono_service
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -132,18 +136,15 @@ async def export_pdf(
     pdf.set_margins(12, 12, 12)
     pdf.add_page()
 
-    # Title band
-    pdf.set_fill_color(22, 163, 74)
-    pdf.rect(0, 0, 297, 22, "F")
-    pdf.set_font("Helvetica", "B", 15)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_xy(12, 5)
-    pdf.cell(0, 10, "FOID - Reports & Insights", ln=False)
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_xy(12, 14)
-    pdf.cell(0, 6, f"Generated {now.strftime('%d %b %Y %H:%M UTC')}  |  {current_user.first_name} {current_user.last_name}")
+    # Title band — FOID purple
+    band_h = draw_foid_header(
+        pdf,
+        title="Reports & Insights",
+        subtitle=f"Generated {now.strftime('%d %b %Y %H:%M UTC')}  |  {current_user.first_name} {current_user.last_name}",
+        landscape=True,
+    )
     pdf.set_text_color(30, 30, 30)
-    pdf.set_y(30)
+    pdf.set_y(band_h + 6)
 
     if not rows:
         pdf.set_font("Helvetica", "", 11)
@@ -158,7 +159,7 @@ async def export_pdf(
         ]
         # Header
         pdf.set_font("Helvetica", "B", 9)
-        pdf.set_fill_color(243, 244, 246)
+        pdf.set_fill_color(245, 240, 255)
         pdf.set_text_color(80, 80, 80)
         for label, w in cols:
             pdf.cell(w, 8, label, border="B", fill=True, align="C")
@@ -190,7 +191,7 @@ async def export_pdf(
         total_tax     = sum(r["tax"]     for r in rows)
         pdf.ln(2)
         pdf.set_font("Helvetica", "B", 9)
-        pdf.set_fill_color(22, 163, 74)
+        pdf.set_fill_color(200, 0, 222)
         pdf.set_text_color(255, 255, 255)
         for (_, w), val in zip(cols, [
             "TOTAL",
@@ -205,7 +206,7 @@ async def export_pdf(
     pdf.set_y(-16)
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(156, 163, 175)
-    pdf.cell(0, 6, "FOID - Identity & Digital Risk Assessment | This report is system-generated", align="C")
+    pdf.cell(0, 6, "FOID — Identity & Financial Trust Platform | This report is system-generated", align="C")
 
     filename = f"foid_report_{date.today().isoformat()}.pdf"
     return StreamingResponse(
@@ -225,8 +226,14 @@ async def monthly_pdf(
     current_user: Annotated[User, Depends(get_current_user)] = None,  # type: ignore[assignment]  # noqa: B008
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Generate a detailed audit PDF for a single calendar month."""
+    """Generate a detailed audit PDF for a single calendar month.
+
+    Pulls data from two sources and merges them:
+      1. LedgerEntry rows (manually added or receipt-scanned)
+      2. Mono Open Banking transactions for that month across all connected banks
+    """
     from fpdf import FPDF
+    import httpx
 
     try:
         year, mon = int(month[:4]), int(month[5:7])
@@ -234,6 +241,7 @@ async def monthly_pdf(
         from fastapi import HTTPException, status
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="month must be YYYY-MM")
 
+    # ── 1. Ledger entries for this month ──────────────────────────────
     stmt = (
         select(LedgerEntry)
         .where(
@@ -244,7 +252,6 @@ async def monthly_pdf(
     )
     result = await db.exec(stmt)
     all_entries = result.all()
-    # Filter to exact month (next-month boundary)
     entries = [
         e for e in all_entries
         if e.entry_date.year == year and e.entry_date.month == mon
@@ -252,10 +259,62 @@ async def monthly_pdf(
 
     income_entries  = [e for e in entries if e.entry_type == "income"]
     expense_entries = [e for e in entries if e.entry_type == "expense"]
-    total_income    = sum(float(e.amount) for e in income_entries)
-    total_expense   = sum(float(e.amount) for e in expense_entries)
-    net             = total_income - total_expense
-    est_tax         = max(0.0, round(net * 0.075, 2))
+    ledger_income   = sum(float(e.amount) for e in income_entries)
+    ledger_expense  = sum(float(e.amount) for e in expense_entries)
+
+    # ── 2. Mono transactions for this month ───────────────────────────
+    start_str = f"{year}-{mon:02d}-01"
+    # last day of month
+    if mon == 12:
+        end_str = f"{year}-12-31"
+    else:
+        from datetime import timedelta as _timedelta
+        end_str = (date(year, mon + 1, 1) - _timedelta(days=1)).strftime("%Y-%m-%d")
+
+    banks_result = await db.exec(
+        select(ConnectedBank).where(ConnectedBank.user_id == current_user.id)
+    )
+    connected_banks = banks_result.all()
+
+    mono_income: float = 0.0
+    mono_expense: float = 0.0
+    mono_tx_rows: list[dict[str, Any]] = []   # for the PDF transaction table
+
+    for bank in connected_banks:
+        try:
+            data: Any = await mono_service.get_transactions(
+                bank.mono_account_id,
+                start=start_str,
+                end=end_str,
+                limit=500,
+            )
+            for tx in data.get("data", []):
+                amount_naira = tx.get("amount", 0) / 100   # kobo → naira
+                tx_type = tx.get("type", "")
+                tx_date_str = tx.get("date", "")[:10]
+                narration = tx.get("narration", "")[:60]
+                category = tx.get("category") or "Other"
+                if tx_type == "credit":
+                    mono_income += amount_naira
+                else:
+                    mono_expense += amount_naira
+                mono_tx_rows.append({
+                    "date": tx_date_str,
+                    "narration": narration,
+                    "category": category,
+                    "type": tx_type,
+                    "amount": amount_naira,
+                    "bank": bank.name,
+                })
+        except (httpx.HTTPStatusError, httpx.TimeoutException, Exception):
+            # If one bank fails, continue with others
+            continue
+
+    # ── Merged totals ─────────────────────────────────────────────────
+    total_income  = ledger_income + mono_income
+    total_expense = ledger_expense + mono_expense
+    net           = total_income - total_expense
+    est_tax       = max(0.0, round(net * 0.075, 2))
 
     month_label = date(year, mon, 1).strftime("%B %Y")
     now         = datetime.now(timezone.utc)
@@ -265,18 +324,14 @@ async def monthly_pdf(
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.add_page()
 
-    # Title band
-    pdf.set_fill_color(22, 163, 74)
-    pdf.rect(0, 0, 210, 24, "F")
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_xy(14, 5)
-    pdf.cell(0, 10, f"FOID - Monthly Audit: {month_label}", ln=False)
-    pdf.set_font("Helvetica", "", 8)
-    pdf.set_xy(14, 15)
-    pdf.cell(0, 6, f"Generated {now.strftime('%d %b %Y %H:%M UTC')}  |  {current_user.first_name} {current_user.last_name}")
+    # Title band — FOID purple
+    band_h = draw_foid_header(
+        pdf,
+        title=f"Monthly Audit: {month_label}",
+        subtitle=f"Generated {now.strftime('%d %b %Y %H:%M UTC')}  |  {current_user.first_name} {current_user.last_name}",
+    )
     pdf.set_text_color(30, 30, 30)
-    pdf.set_y(32)
+    pdf.set_y(band_h + 8)
 
     # Summary box
     def kv(label: str, val: str, color: tuple[int, int, int] = (30, 30, 30)) -> None:
@@ -289,22 +344,22 @@ async def monthly_pdf(
         pdf.set_text_color(30, 30, 30)
 
     pdf.set_font("Helvetica", "B", 10)
-    pdf.set_fill_color(243, 244, 246)
+    pdf.set_fill_color(245, 240, 255)
     pdf.cell(0, 7, "  Summary", fill=True, ln=True)
     pdf.ln(1)
     kv("Total Income",    f"N{total_income:,.2f}", (22, 163, 74))
     kv("Total Expenses",  f"N{total_expense:,.2f}", (220, 38, 38) if total_expense > 0 else (30, 30, 30))
     kv("Net Profit",      f"N{net:,.2f}", (22, 163, 74) if net >= 0 else (220, 38, 38))
     kv("Estimated Tax",   f"N{est_tax:,.2f} (7.5%)")
-    kv("Total entries",   str(len(entries)))
+    kv("Sources",         f"Ledger: {len(entries)} entries   |   Mono: {len(mono_tx_rows)} bank transactions")
     pdf.ln(4)
 
-    # Entry table helper
+    # ── Ledger entry table helper ──────────────────────────────────────
     def entry_table(title: str, rows: list[LedgerEntry]) -> None:
         if not rows:
             return
         pdf.set_font("Helvetica", "B", 10)
-        pdf.set_fill_color(243, 244, 246)
+        pdf.set_fill_color(245, 240, 255)
         pdf.cell(0, 7, f"  {title}", fill=True, ln=True)
         pdf.ln(1)
 
@@ -336,18 +391,64 @@ async def monthly_pdf(
             pdf.ln()
         pdf.ln(4)
 
-    entry_table("Income Entries", income_entries)
-    entry_table("Expense Entries", expense_entries)
+    entry_table("Ledger Income Entries", income_entries)
+    entry_table("Ledger Expense Entries", expense_entries)
 
-    # Category breakdown
-    if expense_entries:
-        cat_map: dict[str, float] = {}
-        for e in expense_entries:
-            cat_map[e.category] = cat_map.get(e.category, 0.0) + float(e.amount)
+    # ── Mono Open Banking transactions for this month ──────────────────
+    if mono_tx_rows:
+        mono_tx_rows.sort(key=lambda r: r["date"])
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_fill_color(245, 240, 255)
+        pdf.cell(0, 7, f"  Open Banking Transactions ({len(mono_tx_rows)} via Mono)", fill=True, ln=True)
+        pdf.ln(1)
+
+        mtcols: list[tuple[str, int]] = [
+            ("Date",        22),
+            ("Bank",        28),
+            ("Narration",   78),
+            ("Category",    26),
+            ("Type",        16),
+            ("Amount (N)",  36),
+        ]
+        pdf.set_font("Helvetica", "B", 7)
+        pdf.set_text_color(80, 80, 80)
+        for lbl, w in mtcols:
+            pdf.cell(w, 6, lbl, border="B")
+        pdf.ln()
+
+        pdf.set_font("Helvetica", "", 7)
+        pdf.set_text_color(30, 30, 30)
+        for i, tx in enumerate(mono_tx_rows):
+            fill = i % 2 == 0
+            pdf.set_fill_color(247, 248, 250) if fill else pdf.set_fill_color(255, 255, 255)
+            # colour the amount by type
+            for (_, w), val in zip(mtcols, [
+                tx["date"],
+                tx["bank"][:12],
+                tx["narration"][:50],
+                tx["category"][:14],
+                tx["type"],
+                f"N{tx['amount']:,.2f}",
+            ]):
+                pdf.cell(w, 5, val, fill=fill)
+            pdf.ln()
+        pdf.ln(4)
+
+    # ── Combined category breakdown ────────────────────────────────────
+    # Merge ledger expenses + Mono debits
+    cat_map: dict[str, float] = {}
+    for e in expense_entries:
+        cat_map[e.category] = cat_map.get(e.category, 0.0) + float(e.amount)
+    for tx in mono_tx_rows:
+        if tx["type"] == "debit":
+            cat = tx["category"] or "Other"
+            cat_map[cat] = cat_map.get(cat, 0.0) + tx["amount"]
+
+    if cat_map:
         sorted_cats = sorted(cat_map.items(), key=lambda x: x[1], reverse=True)
 
         pdf.set_font("Helvetica", "B", 10)
-        pdf.set_fill_color(243, 244, 246)
+        pdf.set_fill_color(245, 240, 255)
         pdf.cell(0, 7, "  Expense Breakdown by Category", fill=True, ln=True)
         pdf.ln(1)
         pdf.set_font("Helvetica", "", 9)
@@ -363,7 +464,7 @@ async def monthly_pdf(
     pdf.set_y(-16)
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(156, 163, 175)
-    pdf.cell(0, 6, "FOID - Identity & Digital Risk Assessment | This report is system-generated", align="C")
+    pdf.cell(0, 6, "FOID — Identity & Financial Trust Platform | This report is system-generated", align="C")
 
     filename = f"foid_audit_{month}.pdf"
     return StreamingResponse(

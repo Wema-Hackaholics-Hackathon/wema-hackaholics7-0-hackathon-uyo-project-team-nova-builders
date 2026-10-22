@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import MonoConnect from '@mono.co/connect.js'
 import RemixIcon from '@/components/RemixIcon'
 import StatCard from '@/components/StatCard'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
-import type { ConnectedBank } from '@/types/foid'
+import type { ConnectedBank, MonoTransaction } from '@/types/foid'
 
 /* ── Mock data for unverified / preview mode ──────────────────────── */
 interface MockBank {
@@ -214,10 +215,12 @@ function AddBankModal({ onClose, onConnected }: { onClose: () => void; onConnect
 ═══════════════════════════════════════════════════════════════════════ */
 export default function ConnectedBankPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const isVerified = user?.email_verified ?? false
 
   const [banks, setBanks] = useState<ConnectedBank[]>([])
   const [loadingBanks, setLoadingBanks] = useState(false)
+  const [combinedBalance, setCombinedBalance] = useState<number | null>(null)
   const [apiError, setApiError] = useState('')
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = useState<{ id: string; name: string } | null>(null)
@@ -230,7 +233,28 @@ export default function ConnectedBankPage() {
     setApiError('')
     try {
       const res = await api.get<ConnectedBank[]>('/banks/connected')
-      setBanks(res.data)
+      const fetchedBanks = res.data
+      setBanks(fetchedBanks)
+
+      // Fetch latest transaction balance per bank and sum them
+      if (fetchedBanks.length > 0) {
+        const txResults = await Promise.allSettled(
+          fetchedBanks.map(b =>
+            api.get<MonoTransaction[]>(`/banks/${b.id}/transactions`, { params: { limit: 1 } })
+          )
+        )
+        let total = 0
+        let anyData = false
+        txResults.forEach(r => {
+          if (r.status === 'fulfilled' && r.value.data.length > 0) {
+            total += r.value.data[0].balance / 100  // kobo → naira
+            anyData = true
+          }
+        })
+        setCombinedBalance(anyData ? total : null)
+      } else {
+        setCombinedBalance(null)
+      }
     } catch {
       setApiError('Could not load banks. Please refresh.')
     } finally {
@@ -312,8 +336,16 @@ export default function ConnectedBankPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Connected Banks" value={String(connectedCount)}
           sub="Open Banking linked accounts" subColor="text-brand-500 font-semibold" icon="ri-bank-line" />
-        <StatCard label="Combined Balance" value="₦—"
-          sub="Across all linked accounts" subColor="text-neutral-400" icon="ri-coin-line" />
+        <StatCard
+          label="Combined Balance"
+          value={
+            loadingBanks
+              ? '…'
+              : combinedBalance !== null
+                ? `₦${combinedBalance.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : '₦—'
+          }
+          sub="Latest balance across linked accounts" subColor="text-neutral-400" icon="ri-coin-line" />
         <StatCard
           label="Last Synced"
           value={isVerified && banks.length > 0 ? fmtSync(banks[0].last_synced_at) : '—'}
@@ -367,6 +399,12 @@ export default function ConnectedBankPage() {
             </div>
             <div className="flex items-center gap-2 shrink-0 ml-4">
               {bank.status === 'error' ? <ErrorBadge /> : <VerifiedBadge />}
+              <button
+                onClick={() => navigate(`/dashboard/banks/${bank.id}/transactions`)}
+                className="px-3 py-1.5 rounded-full border border-neutral-200 text-[12px] font-semibold text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 transition-colors whitespace-nowrap"
+              >
+                Transactions
+              </button>
               <button onClick={() => void handleSync(bank.id)} disabled={syncingId === bank.id}
                 title="Sync now"
                 className="p-1.5 rounded-full hover:bg-neutral-100 transition-colors disabled:opacity-50">

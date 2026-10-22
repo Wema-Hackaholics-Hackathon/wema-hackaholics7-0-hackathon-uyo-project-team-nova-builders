@@ -105,3 +105,13 @@ export interface Wallet {
   updated_at: string
   transactions: WalletTransaction[]
 }
+
+export interface MonoTransaction {
+  id: string
+  narration: string
+  amount: number    // kobo
+  type: 'credit' | 'debit'
+  balance: number   // kobo
+  date: string      // ISO string
+  category: string | null
+}

@@ -363,6 +363,7 @@ async def ledger_chat(
     """AI chat about the user's business finances and identity. Costs 1 credit."""
     from datetime import date as _date
     from decimal import Decimal as _D
+    import httpx as _httpx
 
     wallet = await _get_wallet(current_user.id, db)
     if wallet.balance < _CHAT_COST:
@@ -380,37 +381,108 @@ async def ledger_chat(
     )
     all_entries = all_entries_result.all()
 
-    # MTD aggregates
+    # MTD aggregates from ledger
     today = _date.today()
     mtd = [e for e in all_entries if e.entry_date.year == today.year and e.entry_date.month == today.month]
     mtd_income  = sum(e.amount for e in mtd if e.entry_type == "income")
     mtd_expense = sum(e.amount for e in mtd if e.entry_type == "expense")
-    mtd_net     = mtd_income - mtd_expense
-    mtd_tax     = max(_D("0"), (mtd_net * _D("0.075")).quantize(_D("1")))
 
-    # Top expense categories (all-time)
+    # Top expense categories from ledger (all-time)
     cat_totals: dict[str, _D] = {}
     for e in all_entries:
         if e.entry_type == "expense":
             cat_totals[e.category] = cat_totals.get(e.category, _D("0")) + e.amount
-    top_cats = sorted(cat_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+    top_cats_ledger = sorted(cat_totals.items(), key=lambda x: x[1], reverse=True)[:5]
 
     # Credential state
     from ..models.credential import Credential
+    from ..models.connected_bank import ConnectedBank
+    from ..services import mono_service
     cred_result = await db.exec(select(Credential).where(Credential.user_id == current_user.id))
     cred = cred_result.first()
     cred_state = cred.state if cred else "unknown"
     cred_claims: dict = dict(cred.claims) if cred else {}
 
-    # Recent 20 transactions for detail
-    recent_lines = "\n".join(
-        f"  {e.entry_date} | {'IN ' if e.entry_type == 'income' else 'OUT'} | ₦{e.amount:,.0f} | {e.category} | {e.description}"
-        for e in all_entries[:20]
-    ) or "  (no transactions yet)"
+    # ── Fetch Mono bank transactions (last 60 days) ────────────────────
+    from datetime import timedelta as _td
+    start_str = (today - _td(days=60)).strftime("%Y-%m-%d")
+    end_str = today.strftime("%Y-%m-%d")
+
+    banks_result = await db.exec(
+        select(ConnectedBank).where(ConnectedBank.user_id == current_user.id)
+    )
+    connected_banks = banks_result.all()
+
+    mono_tx_all: list[dict] = []
+    mono_income_60d: float = 0.0
+    mono_expense_60d: float = 0.0
+    mono_cat_totals: dict[str, float] = {}
+
+    for bank in connected_banks:
+        try:
+            data = await mono_service.get_transactions(
+                bank.mono_account_id, start=start_str, end=end_str, limit=200
+            )
+            for tx in data.get("data", []):
+                naira = tx.get("amount", 0) / 100
+                tx_type = tx.get("type", "")
+                cat = tx.get("category") or "Other"
+                if tx_type == "credit":
+                    mono_income_60d += naira
+                else:
+                    mono_expense_60d += naira
+                    mono_cat_totals[cat] = mono_cat_totals.get(cat, 0.0) + naira
+                mono_tx_all.append({
+                    "date": tx.get("date", "")[:10],
+                    "type": tx_type,
+                    "naira": naira,
+                    "narration": tx.get("narration", "")[:60],
+                    "category": cat,
+                    "bank": bank.name,
+                })
+        except (_httpx.HTTPStatusError, _httpx.TimeoutException, Exception):
+            continue
+
+    # Sort Mono transactions newest first
+    mono_tx_all.sort(key=lambda t: t["date"], reverse=True)
+
+    # MTD totals from Mono — current month only
+    current_ym = today.strftime("%Y-%m")
+    mono_mtd_income: float = sum(
+        t["naira"] for t in mono_tx_all if t["type"] == "credit" and t["date"].startswith(current_ym)
+    )
+    mono_mtd_expense: float = sum(
+        t["naira"] for t in mono_tx_all if t["type"] == "debit" and t["date"].startswith(current_ym)
+    )
+
+    # Combined MTD
+    total_mtd_income  = float(mtd_income) + mono_mtd_income
+    total_mtd_expense = float(mtd_expense) + mono_mtd_expense
+    mtd_net = _D(str(total_mtd_income - total_mtd_expense))
+    mtd_tax = max(_D("0"), (mtd_net * _D("0.075")).quantize(_D("1")))
+
+    # Top spend categories — merge ledger + Mono
+    merged_cats: dict[str, float] = {k: float(v) for k, v in top_cats_ledger}
+    for cat, amt in mono_cat_totals.items():
+        merged_cats[cat] = merged_cats.get(cat, 0.0) + amt
+    top_cats = sorted(merged_cats.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    # Recent 20 transactions — show both ledger + Mono, newest first
+    ledger_lines = [
+        f"  {e.entry_date} | {'IN ' if e.entry_type == 'income' else 'OUT'} | ₦{e.amount:,.0f} | {e.category} | {e.description} [Ledger]"
+        for e in all_entries[:10]
+    ]
+    mono_lines = [
+        f"  {t['date']} | {'IN ' if t['type'] == 'credit' else 'OUT'} | ₦{t['naira']:,.0f} | {t['category']} | {t['narration']} [{t['bank']} via Mono]"
+        for t in mono_tx_all[:10]
+    ]
+    recent_lines = "\n".join(ledger_lines + mono_lines) or "  (no transactions yet)"
 
     top_cat_lines = "\n".join(f"  {cat}: ₦{amt:,.0f}" for cat, amt in top_cats) or "  (none)"
 
-    system_prompt = f"""You are FOID AI, a smart personal financial and identity assistant built into the IDRA platform for Wema Bank.
+    connected_bank_names = ", ".join(b.name for b in connected_banks) if connected_banks else "none"
+
+    system_prompt = f"""You are FOID AI, a smart personal financial and identity assistant built into the FOID platform for Wema Bank.
 
 === USER PROFILE ===
 Name: {current_user.first_name} {current_user.last_name}
@@ -420,11 +492,15 @@ Identity verified: {"Yes" if cred_claims.get("identity_verified") else "No"}
 Credential state: {cred_state}
 AI credit balance: {wallet.balance} credits
 
+=== CONNECTED BANKS ===
+{connected_bank_names}
+Mono data window: last 60 days ({start_str} to {end_str})
+
 === THIS MONTH ({today.strftime("%B %Y")}) ===
-Income:         ₦{mtd_income:,.0f}
-Expenses:       ₦{mtd_expense:,.0f}
-Net profit:     ₦{mtd_net:,.0f}
-Estimated tax (7.5%): ₦{mtd_tax:,.0f}
+Income (Ledger + Mono):   ₦{total_mtd_income:,.0f}
+Expenses (Ledger + Mono): ₦{total_mtd_expense:,.0f}
+Net profit:               ₦{float(mtd_net):,.0f}
+Estimated tax (7.5%):     ₦{float(mtd_tax):,.0f}
 
 === TOP EXPENSE CATEGORIES (all time) ===
 {top_cat_lines}
@@ -435,11 +511,12 @@ Estimated tax (7.5%): ₦{mtd_tax:,.0f}
 === YOUR ROLE ===
 - You help {current_user.first_name} understand their personal finances, spending patterns, income trends, tax estimates, credential status, and how to use FOID.
 - You are warm, concise, and practical. Keep answers under 200 words unless a detailed breakdown is explicitly requested.
-- You ONLY answer questions about: finances, budgeting, tax, spending, income, IDRA credentials, identity verification, connected banks, and how to use FOID features.
-- If the user asks you to generate code, write programs, create images, play games, discuss unrelated topics, or do anything outside personal finance and FOID — politely decline and redirect them to their finances.
+- You ONLY answer questions about: personal finances, budgeting, tax, spending, income, FOID credentials, identity verification, connected banks, transactions, and how to use FOID features.
+- You MUST politely decline and redirect to finances if the user asks you to: write code, build programs, create images, play games, roleplay, give legal advice, discuss politics, or do ANYTHING unrelated to personal finance and FOID. Example: "I'm your FOID financial assistant — I can't help with that, but I can help you review your spending!"
 - Never make up transaction data. Only use the figures provided above.
 - Format numbers with ₦ and commas. Be encouraging when finances look healthy; be honest but constructive when they don't.
-- If the user has no data yet, guide them to upload receipts or connect a bank account."""
+- If the user has no data yet, guide them to upload receipts or connect a bank account.
+- You have access to real Open Banking transactions from the user's connected banks via Mono. Use them to give specific, data-driven advice."""
 
     # Build history for multi-turn context (cap at last 10 turns = 20 messages)
     history = [
