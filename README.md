@@ -1,3 +1,5 @@
+![foid](image.png)
+
 # FOID — Fintech Open Identity
 
 > **Wema Hackaholics 7.0 Hackathon · Uyo · Team Nova Builders**
