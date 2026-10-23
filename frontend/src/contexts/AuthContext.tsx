@@ -1,102 +1,165 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
-import { type User } from '../types/foid'
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import type { User } from '../types/foid'
+import { api, setTokens, clearTokens, restoreSession } from '../lib/api'
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
+  loading: boolean
   login: (email: string, password: string) => Promise<boolean>
-  signup: (userData: Omit<User, 'id' | 'createdAt'>) => Promise<boolean>
-  logout: () => void
+  signup: (userData: {
+    firstName: string
+    lastName: string
+    middleName?: string
+    nin: string
+    email: string
+    password: string
+  }) => Promise<boolean>
+  logout: () => Promise<void>
+  refreshUser: () => Promise<void>
+  verifyEmail: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>
+  resendVerification: (email: string) => Promise<{ ok: boolean; error?: string }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const USERS_STORAGE_KEY = 'foid_users'
-const CURRENT_USER_KEY = 'foid_current_user'
+function normaliseUser(raw: Record<string, unknown>): User {
+  return {
+    ...(raw as unknown as User),
+    firstName: (raw.first_name as string) ?? '',
+    lastName: (raw.last_name as string) ?? '',
+    middleName: (raw.middle_name as string | null) ?? null,
+    createdAt: (raw.created_at as string) ?? '',
+    email_verified: (raw.email_verified as boolean) ?? false,
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  // Load current user on mount
+  // On mount — try to restore session from the persisted refresh token
   useEffect(() => {
-    const storedUser = localStorage.getItem(CURRENT_USER_KEY)
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser)
-        setUser(parsedUser)
-        setIsAuthenticated(true)
-      } catch (error) {
-        console.error('Failed to parse stored user:', error)
-        localStorage.removeItem(CURRENT_USER_KEY)
+    restoreSession().then(async ok => {
+      if (ok) {
+        try {
+          const res = await api.get<Record<string, unknown>>('/auth/me')
+          setUser(normaliseUser(res.data))
+        } catch {
+          clearTokens()
+        }
       }
+      setLoading(false)
+    })
+  }, [])
+
+  const signup = useCallback(async (userData: {
+    firstName: string
+    lastName: string
+    middleName?: string
+    nin: string
+    email: string
+    password: string
+  }): Promise<boolean> => {
+    try {
+      const res = await api.post<{ access_token: string; refresh_token: string }>(
+        '/auth/signup',
+        {
+          first_name: userData.firstName,
+          last_name: userData.lastName,
+          middle_name: userData.middleName || null,
+          nin: userData.nin,
+          email: userData.email,
+          password: userData.password,
+        }
+      )
+      setTokens(res.data.access_token, res.data.refresh_token)
+      const meRes = await api.get<Record<string, unknown>>('/auth/me')
+      setUser(normaliseUser(meRes.data))
+      return true
+    } catch {
+      return false
     }
   }, [])
 
-  const signup = async (userData: Omit<User, 'id' | 'createdAt'>): Promise<boolean> => {
+  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     try {
-      // Get existing users
-      const storedUsers = localStorage.getItem(USERS_STORAGE_KEY)
-      const users: User[] = storedUsers ? JSON.parse(storedUsers) : []
-
-      // Check if email already exists
-      if (users.some(u => u.email === userData.email)) {
-        return false
-      }
-
-      // Create new user
-      const newUser: User = {
-        ...userData,
-        id: generateId(),
-        createdAt: new Date().toISOString(),
-      }
-
-      // Save to localStorage
-      users.push(newUser)
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users))
-
-      // Auto-login after signup
-      setUser(newUser)
-      setIsAuthenticated(true)
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(newUser))
-
+      const res = await api.post<{ access_token: string; refresh_token: string }>(
+        '/auth/login',
+        { email, password }
+      )
+      setTokens(res.data.access_token, res.data.refresh_token)
+      const meRes = await api.get<Record<string, unknown>>('/auth/me')
+      setUser(normaliseUser(meRes.data))
       return true
-    } catch (error) {
-      console.error('Signup failed:', error)
+    } catch {
       return false
     }
-  }
+  }, [])
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const logout = useCallback(async (): Promise<void> => {
     try {
-      const storedUsers = localStorage.getItem(USERS_STORAGE_KEY)
-      if (!storedUsers) return false
-
-      const users: User[] = JSON.parse(storedUsers)
-      const foundUser = users.find(u => u.email === email && u.password === password)
-
-      if (foundUser) {
-        setUser(foundUser)
-        setIsAuthenticated(true)
-        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(foundUser))
-        return true
+      const stored = localStorage.getItem('idra_refresh_token')
+      if (stored) {
+        await api.post('/auth/logout', { refresh_token: stored })
       }
-
-      return false
-    } catch (error) {
-      console.error('Login failed:', error)
-      return false
+    } catch {
+      // best-effort
+    } finally {
+      clearTokens()
+      setUser(null)
     }
-  }
+  }, [])
 
-  const logout = () => {
-    setUser(null)
-    setIsAuthenticated(false)
-    localStorage.removeItem(CURRENT_USER_KEY)
-  }
+  const refreshUser = useCallback(async (): Promise<void> => {
+    try {
+      const res = await api.get<Record<string, unknown>>('/auth/me')
+      setUser(normaliseUser(res.data))
+    } catch {
+      // silently ignore — token may have expired
+    }
+  }, [])
+
+  const verifyEmail = useCallback(async (
+    email: string,
+    code: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      await api.post('/auth/verify-email', { email, code })
+      // Refresh user so email_verified flips to true in state
+      await refreshUser()
+      return { ok: true }
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? 'Invalid or expired code'
+      return { ok: false, error: msg }
+    }
+  }, [refreshUser])
+
+  const resendVerification = useCallback(async (
+    email: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      await api.post('/auth/resend-verification', { email })
+      return { ok: true }
+    } catch {
+      return { ok: false, error: 'Could not resend code. Please try again.' }
+    }
+  }, [])
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, login, signup, logout }}>
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated: user !== null,
+      loading,
+      login,
+      signup,
+      logout,
+      refreshUser,
+      verifyEmail,
+      resendVerification,
+    }}>
       {children}
     </AuthContext.Provider>
   )
@@ -108,8 +171,4 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider')
   }
   return context
-}
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36)
 }

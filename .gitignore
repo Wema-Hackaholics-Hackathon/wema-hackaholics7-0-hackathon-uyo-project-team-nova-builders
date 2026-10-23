@@ -3,3 +3,6 @@ AGENTS.md
 .venv
 __pycache__
 .env 
+foid.db*
+liveness_test.html
+open-api-platform-plan.md

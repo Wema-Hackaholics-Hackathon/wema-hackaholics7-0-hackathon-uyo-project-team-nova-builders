@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import FoidWordmark from '@/components/FoidWordmark'
@@ -10,10 +10,12 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [form, setForm] = useState({ email: '', password: '' })
 
-  // Redirect if already authenticated
-  if (isAuthenticated) {
-    navigate('/dashboard', { replace: true })
-  }
+  // Redirect if already authenticated — must be in useEffect, never during render
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/dashboard', { replace: true })
+    }
+  }, [isAuthenticated, navigate])
 
   const set = (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
@@ -151,13 +153,13 @@ export default function LoginPage() {
               </div>
 
               {/* Forgot password — sits right below the input */}
-              <a
-                href="#"
+              <Link
+                to="/forgot-password"
                 id="forgot-password-link"
                 className="text-[13px] font-semibold text-[#C800DE] hover:opacity-80 transition-opacity mt-0.5"
               >
                 Forgot Password?
-              </a>
+              </Link>
             </div>
 
             {/* Submit */}

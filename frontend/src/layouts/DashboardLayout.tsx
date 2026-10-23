@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import Sidebar from '@/components/Sidebar.tsx'
 import Topbar from '@/components/Topbar.tsx'
 import AiChat from '@/components/AiChat.tsx'
+import VerificationBanner from '@/components/VerificationBanner.tsx'
 
 export default function DashboardLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -14,6 +15,7 @@ export default function DashboardLayout() {
       <Sidebar drawerOpen={drawerOpen} onDrawerClose={() => setDrawerOpen(false)} />
       <div className="flex flex-col flex-1 overflow-hidden min-w-0">
         <Topbar onMenuClick={() => setDrawerOpen(true)} />
+        <VerificationBanner />
         <main className="flex-1 overflow-y-auto py-8 md:py-12 bg-white px-4 md:px-8">
           <AnimatePresence mode="wait">
             <motion.div
