@@ -11,23 +11,34 @@ Each function returns a (subject, html) tuple.
 
 from __future__ import annotations
 
-# FOID logo-white as a tiny base64 PNG so the header works even in email clients
-# that block external images.  We also reference a hosted URL as a fallback src.
-_LOGO_B64 = (
-    "data:image/png;base64,"
-    "iVBORw0KGgoAAAANSUhEUgAAAB8AAAApCAYAAADNjfKJAAAACXBIWXMAAAsTAAALEwEAmpwY"
-    "AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAOdEVYdFNvZnR3YXJlAEZpZ21hnrGW"
-    "YwAAAehJREFUeAG9loFVwjAQhv/6GIANDBvgBNYJhA1wAnEDmECYQEfACawT6AbUCdQJ4h1p"
-    "H2loS3JJ+d478WnTj+s1l8twQbTWY/qYUdxS/GFoWEixpHin+NFHliMMAN04h8kur6KNLySS"
-    "cXY5xbOTXSe8Tpy5Vb97mOzGAcvfguUkVI5Qyo5/ZOeusuq3oFCIp8yybMK/jFpk/PimMNkt"
-    "EPY4fVijRapatkNq9rbTzlwhro4+NLK+QlM+JFuq9Ss65Klra1NSrNw/XkJeUtxR1r/okSuk"
-    "h4VzEpdt/7Tl10gv5ow7e/gVhqGkuOkTu3KFNBSVuPReoePh5rREKNociTHSlTZtOYi6w4Uu"
-    "5JepgDkad/U24i/QtqV60WYQ8MlwU107ttY2xqQA7dnMC4oP/qSMCks4pajP9Ny6Pmg0apMX"
-    "OD7O0hLmMMcsDxOq437fEMi5Tg9w6kexgBkkZvB7L3aQ4tRPgkIotOgxQljzAgkJxEyOQOr2"
-    "GnucNnaDL4fpVZv9GfMFJkG9vCJF5luJ+IA2U6uUvRb09BrOXEFGPSyE9XJHLuVJ/LgtuUI4"
-    "a3cMljASyDnjDRLAct8X5tD/SSzv30I5H5Xz2BqfoPtb62FEwlDQzT+7pDF72Fe+t4QnY9LQ"
-    "8pXkRErBP53BTRQPqBdLAAAAAElFTkSuQmCC"
-)
+import base64
+from pathlib import Path
+
+
+def _load_logo_b64() -> str:
+    """Read logo-white.png from the repo and return a base64 data-URI.
+
+    Search order:
+      1. frontend/public/logo-white.png  (relative to this file's location)
+      2. Bundled fallback path (Docker / installed package)
+
+    Returns an empty string if the file cannot be found so templates still
+    render — just without the logo image.
+    """
+    candidates = [
+        # Running from backend-2/ (normal dev / Docker)
+        Path(__file__).resolve().parents[3] / "frontend" / "public" / "logo-white.png",
+        # Installed package — logo copied next to this module
+        Path(__file__).resolve().parent / "logo-white.png",
+    ]
+    for path in candidates:
+        if path.exists():
+            data = path.read_bytes()
+            return "data:image/png;base64," + base64.b64encode(data).decode()
+    return ""   # graceful degradation — img tag will just show alt text
+
+
+_LOGO_B64 = _load_logo_b64()
 
 _PURPLE     = "#C800DE"
 _PURPLE_MID = "#9b00d9"
