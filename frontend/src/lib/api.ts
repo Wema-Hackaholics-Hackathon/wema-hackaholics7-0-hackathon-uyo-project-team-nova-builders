@@ -9,7 +9,7 @@
 import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 
-const _rawBase = import.meta.env.VITE_API_BASE_URL as string | undefined
+const _rawBase = import.meta.env.VITE_API_URL as string | undefined
 export const BASE_URL = (_rawBase ?? '').replace(/\/api\/v1\/?$/, '')
 
 // ── In-memory token store ─────────────────────────────────────────────────
