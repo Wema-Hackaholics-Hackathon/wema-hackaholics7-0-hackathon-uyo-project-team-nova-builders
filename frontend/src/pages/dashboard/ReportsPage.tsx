@@ -18,6 +18,32 @@ const PINK       = '#e879f9'
 /* ── Helpers ────────────────────────────────────────────────────────── */
 const naira = (n: number) => '₦' + n.toLocaleString('en-NG')
 
+/* ── Mock data shown to unverified users (preview mode) ─────────────── */
+const MOCK_MONTHLY_ROWS = [
+  { month: 'Jul 2026', year_month: '2026-07', income: 2_140_500, expense: 1_382_900, net: 757_600,  tax: 56_820 },
+  { month: 'Jun 2026', year_month: '2026-06', income: 1_920_000, expense: 1_210_000, net: 710_000,  tax: 53_250 },
+  { month: 'May 2026', year_month: '2026-05', income: 1_650_000, expense: 980_000,   net: 670_000,  tax: 50_250 },
+  { month: 'Apr 2026', year_month: '2026-04', income: 1_480_000, expense: 1_050_000, net: 430_000,  tax: 32_250 },
+  { month: 'Mar 2026', year_month: '2026-03', income: 1_300_000, expense: 870_000,   net: 430_000,  tax: 32_250 },
+  { month: 'Feb 2026', year_month: '2026-02', income: 1_100_000, expense: 790_000,   net: 310_000,  tax: 23_250 },
+]
+const MOCK_AREA_DATA = [
+  { x: 'Day 1', income: 320_000, expense: 180_000 },
+  { x: 'Day 2', income: 0,       expense: 95_000  },
+  { x: 'Day 3', income: 540_000, expense: 210_000 },
+  { x: 'Day 4', income: 180_000, expense: 140_000 },
+  { x: 'Day 5', income: 0,       expense: 320_000 },
+  { x: 'Day 6', income: 210_000, expense: 48_000  },
+  { x: 'Day 7', income: 890_500, expense: 389_900 },
+]
+const MOCK_SPEND_CATS = [
+  { label: 'Payroll',   value: 640_000, amount: '₦640,000' },
+  { label: 'Logistics', value: 318_200, amount: '₦318,200' },
+  { label: 'Software',  value: 210_000, amount: '₦210,000' },
+  { label: 'Marketing', value: 140_700, amount: '₦140,700' },
+  { label: 'Other',     value:  74_000, amount: '₦74,000'  },
+]
+
 /* ── Page ───────────────────────────────────────────────────────────── */
 export default function ReportsPage() {
   const { user } = useAuth()
@@ -28,16 +54,21 @@ export default function ReportsPage() {
   const [exportingPDF, setExportingPDF]   = useState(false)
   const [downloadingMonthly, setDownloadingMonthly] = useState<string | null>(null)
 
+  // ── Use mock data for unverified users ───────────────────────────────
+  const displayMonthly      = isVerified ? monthlyRows    : MOCK_MONTHLY_ROWS
+  const displaySpendCats    = isVerified ? spendByCategory : MOCK_SPEND_CATS
+  const displayTotalCredit  = isVerified ? totalCredit    : MOCK_MONTHLY_ROWS.reduce((s, r) => s + r.income, 0)
+  const displayTotalDebit   = isVerified ? totalDebit     : MOCK_MONTHLY_ROWS.reduce((s, r) => s + r.expense, 0)
+
   /* ── Aggregates ── */
-  const last6 = monthlyRows.slice(0, 6)
+  const last6 = displayMonthly.slice(0, 6)
   const avgIncome  = last6.length > 0 ? Math.round(last6.reduce((s, r) => s + r.income, 0) / last6.length) : 0
   const avgExpense = last6.length > 0 ? Math.round(last6.reduce((s, r) => s + r.expense, 0) / last6.length) : 0
-  const netCashFlow = totalCredit - totalDebit
+  const netCashFlow = displayTotalCredit - displayTotalDebit
   const savingsRate = avgIncome > 0 ? Math.round(((avgIncome - avgExpense) / avgIncome) * 100) : 0
 
-  /* ── Income sources from spend categories (credit side ≈ income type) ── */
-  // We don't have income-side categories from Mono; use spend category names as proxy
-  const incomeSourcesData = spendByCategory.slice(0, 3).map(c => ({
+  /* ── Income sources from spend categories ── */
+  const incomeSourcesData = displaySpendCats.slice(0, 3).map(c => ({
     source: c.label,
     amount: c.value,
   }))
@@ -92,10 +123,11 @@ export default function ReportsPage() {
   }, [downloadingMonthly])
 
   /* ── Chart data for area chart ── */
-  // Use Mono daily data if available, else show no chart
-  const areaData = chartData.length > 0
-    ? chartData.map(d => ({ x: d.week, income: d.income, expense: d.expense }))
-    : []
+  const areaData = !isVerified
+    ? MOCK_AREA_DATA
+    : chartData.length > 0
+      ? chartData.map(d => ({ x: d.week, income: d.income, expense: d.expense }))
+      : []
 
   return (
     <div className="flex flex-col gap-5">
@@ -279,13 +311,13 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {!loading && monthlyRows.length === 0 && (
+        {!loading && displayMonthly.length === 0 && (
           <div className="px-6 py-10 text-center text-[13px] text-neutral-400">
             No monthly data yet — connect a bank and Mono will populate this table.
           </div>
         )}
 
-        {!loading && monthlyRows.length > 0 && (
+        {!loading && displayMonthly.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[560px]">
               <thead>
@@ -303,7 +335,7 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {monthlyRows.map((row, i) => (
+                {displayMonthly.map((row, i) => (
                   <tr key={i} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50/60 transition-colors">
                     <td className="px-6 py-5 text-[14px] font-semibold text-neutral-900">{row.month}</td>
                     <td className="px-6 py-5 text-[13px] text-neutral-700">{naira(row.income)}</td>

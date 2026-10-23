@@ -125,6 +125,49 @@ async def upload_receipt(
     return LedgerEntryOut.model_validate(entry)
 
 
+# ── Ledger stats schema ────────────────────────────────────────────────────
+from pydantic import BaseModel as _BM
+
+class LedgerStats(_BM):
+    total_entries: int
+    total_income: float
+    total_expense: float
+    net: float
+    estimated_tax: float
+    auto_categorised_pct: float   # % of entries with confidence >= 0.8
+    exports_this_month: int       # always 0 — no DB tracking for exports yet
+
+
+@router.get("/stats", response_model=LedgerStats)
+async def ledger_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LedgerStats:
+    """Aggregate stats for the user's ledger (total entries, MTD income/expense, tax)."""
+    from decimal import Decimal as _D
+    result = await db.exec(
+        select(LedgerEntry).where(LedgerEntry.user_id == current_user.id)
+    )
+    entries = result.all()
+
+    total_income  = sum(e.amount for e in entries if e.entry_type == "income")
+    total_expense = sum(e.amount for e in entries if e.entry_type == "expense")
+    net           = total_income - total_expense
+    est_tax       = max(_D("0"), net * _D("0.075"))
+    auto_cat      = sum(1 for e in entries if e.confidence >= 0.8)
+    auto_pct      = round(auto_cat / len(entries) * 100, 1) if entries else 0.0
+
+    return LedgerStats(
+        total_entries=len(entries),
+        total_income=float(total_income),
+        total_expense=float(total_expense),
+        net=float(net),
+        estimated_tax=float(est_tax),
+        auto_categorised_pct=auto_pct,
+        exports_this_month=0,
+    )
+
+
 @router.get("", response_model=list[LedgerEntryOut])
 async def list_ledger_entries(
     filter_type: Literal["income", "expense", "all"] = Query(default="all", alias="filter"),
