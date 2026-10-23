@@ -62,6 +62,10 @@ from app.schemas.auth import (
     VerifyResetCodeResponse,
 )
 from app.services.email_service import send_email
+from app.services.email_templates import (
+    email_verification as _tpl_email_verification,
+    password_reset as _tpl_password_reset,
+)
 from app.utils.limiter import limiter
 
 _PROOF_UPLOAD_DIR = Path("uploads/proof_of_address")
@@ -122,17 +126,22 @@ async def _email_verification_otp(user: User, otp: str) -> None:
     A failure here is non-fatal: the token is already persisted, so the user
     can request a new code via POST /auth/resend-verification.
     """
+    subject, html = _tpl_email_verification(
+        first_name=user.first_name,
+        otp=otp,
+        to=user.email,
+    )
     await send_email(
         to=user.email,
-        subject="Verify your FOID email address",
+        subject=subject,
         body=(
-            f"Hi {user.first_name},\n\n"
-            f"Welcome to FOID! Please verify your email address using the code below:\n\n"
-            f"    {otp}\n\n"
+            f"Hi {user.first_name}, welcome to FOID!\n\n"
+            f"Your email verification code is:  {otp}\n\n"
             f"This code expires in 30 minutes.\n"
-            f"If you did not create a FOID account, you can safely ignore this email.\n\n"
+            f"If you did not create a FOID account, ignore this email.\n\n"
             f"— The FOID Team"
         ),
+        html=html,
     )
 
 
@@ -693,17 +702,22 @@ async def forgot_password(
         ))
         await db.commit()
 
+        subject, html = _tpl_password_reset(
+            first_name=user.first_name,
+            otp=otp,
+            to=user.email,
+        )
         await send_email(
             to=user.email,
-            subject="Your FOID password reset code",
+            subject=subject,
             body=(
                 f"Hi {user.first_name},\n\n"
-                f"Your password reset code is:\n\n"
-                f"    {otp}\n\n"
+                f"Your FOID password reset code is:  {otp}\n\n"
                 f"This code expires in 10 minutes.\n"
                 f"If you did not request a password reset, ignore this email.\n\n"
                 f"— The FOID Team"
             ),
+            html=html,
         )
 
     return {"message": "If that email is registered, a reset code has been sent."}

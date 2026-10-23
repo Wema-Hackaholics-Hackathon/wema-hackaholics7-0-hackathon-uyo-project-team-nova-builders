@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     MONO_SECRET_KEY: str = ""
     MONO_PUBLIC_KEY: str = ""
 
+    # Email — Resend (https://resend.com)
+    # If RESEND_API_KEY is set, emails are sent via Resend regardless of ENV.
+    # If blank, all emails are printed to the terminal (dev console mode).
+    RESEND_API_KEY: str = ""
+    FROM_EMAIL: str = "FOID <onboarding@resend.dev>"   # override with your verified domain
+
     # Bachs payment provider
     BACHS_API_KEY: str = ""             # sk_sandbox_... or sk_live_...
     BACHS_WEBHOOK_SECRET: str = ""      # from Bachs Developer Portal

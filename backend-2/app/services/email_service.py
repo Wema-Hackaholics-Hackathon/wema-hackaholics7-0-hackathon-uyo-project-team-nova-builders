@@ -1,12 +1,14 @@
-"""Email service — console logger in development, Resend in production.
+"""Email service — smart switch between console logger and Resend.
 
-In development (ENV=development) every outgoing email is printed to the
-terminal in a clear, bordered format — exactly like Django's console email
-backend.  No SMTP, no API keys, no setup required.
-
-In production (ENV=production) the send_email() function is where you plug
-in Resend (or any other provider).  The call signature never changes, so
-all callers remain untouched when you make that swap.
+Logic
+-----
+* If ``RESEND_API_KEY`` is set in the environment (non-empty):
+    → sends a real email via the Resend API (https://resend.com).
+    → uses the branded HTML template when ``html=`` is supplied.
+    → falls back to a plain-text body when only ``body=`` is given.
+* If ``RESEND_API_KEY`` is blank (default dev setup):
+    → prints a clearly formatted block to the terminal.
+    → no external calls, no API keys required.
 
 Usage
 -----
@@ -14,48 +16,83 @@ Usage
 
     await send_email(
         to="user@example.com",
-        subject="Your password reset code",
-        body="Your OTP is: 123456\\n\\nExpires in 10 minutes.",
+        subject="Your FOID OTP",
+        body="Your code is: 123456",   # plain-text fallback
+        html="<html>…</html>",         # branded HTML (optional)
     )
 """
 
 from __future__ import annotations
 
+import asyncio
 import textwrap
 from datetime import datetime, timezone
 
 
-async def send_email(to: str, subject: str, body: str) -> None:
+async def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    *,
+    html: str | None = None,
+) -> None:
     """Send an email.
 
-    Development: prints a formatted block to the terminal via logging.
-    Production:  replace the stub below with a real provider (e.g. Resend).
+    Parameters
+    ----------
+    to:      Recipient address.
+    subject: Email subject line.
+    body:    Plain-text body (always required — used as console fallback and
+             as Resend ``text`` field for email-client plain-text rendering).
+    html:    Optional branded HTML body.  When ``RESEND_API_KEY`` is set and
+             ``html`` is provided, the HTML version is sent.  When only
+             ``body`` is provided, a plain-text email is sent via Resend.
     """
     from app.config import get_settings
     settings = get_settings()
 
-    if settings.ENV != "production":
+    if settings.RESEND_API_KEY:
+        await _send_via_resend(
+            api_key=settings.RESEND_API_KEY,
+            from_email=settings.FROM_EMAIL,
+            to=to,
+            subject=subject,
+            body=body,
+            html=html,
+        )
+    else:
         _log_to_console(to=to, subject=subject, body=body)
-        return
 
-    # ------------------------------------------------------------------ #
-    # PRODUCTION — swap this block for your real mailer when ready.       #
-    # Example with Resend:                                                 #
-    #                                                                      #
-    #   import resend                                                      #
-    #   resend.api_key = settings.RESEND_API_KEY                          #
-    #   resend.Emails.send({                                               #
-    #       "from": settings.FROM_EMAIL,                                  #
-    #       "to": to,                                                      #
-    #       "subject": subject,                                            #
-    #       "text": body,                                                  #
-    #   })                                                                 #
-    # ------------------------------------------------------------------ #
-    print(
-        f"[email_service] WARNING: send_email() called in production but no mailer is configured. "
-        f"To: {to} | Subject: {subject}",
-        flush=True,
-    )
+
+# ---------------------------------------------------------------------------
+# Resend delivery
+# ---------------------------------------------------------------------------
+
+async def _send_via_resend(
+    *,
+    api_key: str,
+    from_email: str,
+    to: str,
+    subject: str,
+    body: str,
+    html: str | None,
+) -> None:
+    """Call the Resend API inside a thread (the SDK is synchronous)."""
+    import resend  # installed via `uv add resend`
+
+    def _sync_send() -> None:
+        resend.api_key = api_key
+        payload: dict[str, str] = {
+            "from": from_email,
+            "to": to,
+            "subject": subject,
+            "text": body,
+        }
+        if html:
+            payload["html"] = html
+        resend.Emails.send(payload)  # type: ignore[attr-defined]
+
+    await asyncio.to_thread(_sync_send)
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +107,7 @@ def _log_to_console(*, to: str, subject: str, body: str) -> None:
 
     message = (
         f"\n{border}\n"
-        f"  📧 EMAIL (development — not actually sent)\n"
+        f"  📧 EMAIL (dev — not actually sent — set RESEND_API_KEY to send for real)\n"
         f"{border}\n"
         f"  To      : {to}\n"
         f"  Subject : {subject}\n"
