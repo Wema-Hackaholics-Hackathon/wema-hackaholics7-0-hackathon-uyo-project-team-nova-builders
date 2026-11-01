@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     CREDIT_PRICE_NGN: int = 5               # ₦5 per credit
     MIN_PURCHASE_NGN: int = 500             # minimum purchase amount
 
+    # Liveness + face matching (faceliveness SDK + SFace)
+    LIVENESS_SIGNING_KEY: str = ""      # 64 hex chars (Ed25519 secret); ephemeral key in dev if blank
+    LIVENESS_CHALLENGE_COUNT: int = 3
+    FACE_TEMPLATE_KEY: str = ""         # Fernet key; derived from SECRET_KEY in dev if blank
+    FACE_MATCH_THRESHOLD: float = 0.363 # SFace cosine default — tune against measured FAR/FRR
+    FACE_MIN_QUALITY: float = 0.3
+    SFACE_MODEL_PATH: str = "app/data/models/face_recognition_sface_2021dec.onnx"
+
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:5173"
 

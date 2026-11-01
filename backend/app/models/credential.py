@@ -58,11 +58,13 @@ class CredentialClaims(TypedDict):
 
 
 # Default claims for a freshly created credential.
+# identity_verified starts False — flipped when a face is enrolled through a
+#   passed liveness check (POST /auth/me/liveness/{nonce}/complete).
 # bvn_validated starts False — flipped via PATCH /auth/me/bvn.
 # nin_verified / phone_verified / bill_verified start False — flipped by admin only.
 # email_verified starts False — flipped to True via POST /auth/verify-email.
 DEFAULT_CLAIMS: CredentialClaims = {
-    "identity_verified": True,
+    "identity_verified": False,
     "bvn_validated": False,
     "nin_verified": False,
     "phone_verified": False,

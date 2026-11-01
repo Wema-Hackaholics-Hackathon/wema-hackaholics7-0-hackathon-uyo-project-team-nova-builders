@@ -47,8 +47,8 @@ FOID gives a user a **Verified Digital Credential** — a structured, tamper-evi
 their identity and financial behaviour. The credential is backed by:
 
 - **NIN + BVN verification** — official government and banking identity anchors
-- **Active liveness check** — 3-challenge face detection (look left, open mouth, etc.) to
-  prevent spoofing without any hardware dependency
+- **Active liveness check + face matching** — server-verified random challenges (head turns,
+  open mouth) with signed receipts, then an encrypted face template for 1:1 re-verification
 - **Open Banking integration** — real transaction data from Mono-connected bank accounts feeds
   into account stability and repayment reliability signals
 - **AI-powered business ledger** — OCR receipt scanning + Groq AI summarises income/expense
@@ -85,7 +85,7 @@ approve, inspect, and revoke platform access at any time.
 | **Frontend** | React 19, TypeScript, Vite, Tailwind CSS 4, Framer Motion, Recharts |
 | **Backend** | Python 3.12, FastAPI, Uvicorn, SQLModel (SQLAlchemy 2 + Pydantic v2) |
 | **AI / OCR** | Groq (Qwen + GPT-class models) — receipt parsing, financial chat |
-| **Liveness** | OpenCV 4.10 — Haar cascade face/eye/smile detection, 3-challenge active check |
+| **Liveness** | [faceliveness](https://pypi.org/project/faceliveness/) (server-side, Ed25519-signed receipts) + OpenCV SFace for 1:1 face matching |
 | **Open Banking** | Mono Connect — bank account linking, transaction history |
 | **Payments** | Bachs — NGN credit purchase, webhook-verified top-up |
 | **Database** | SQLite (dev) / PostgreSQL (prod) via aiosqlite / asyncpg |
@@ -99,7 +99,7 @@ approve, inspect, and revoke platform access at any time.
 ## Repository Structure
 
 ```
-├── backend-2/          FastAPI backend (Python 3.12, uv)
+├── backend/            FastAPI backend (Python 3.12, uv)
 │   ├── app/
 │   │   ├── models/     SQLModel ORM tables
 │   │   ├── routers/    API endpoint handlers
@@ -128,7 +128,7 @@ approve, inspect, and revoke platform access at any time.
 ### Backend
 
 ```bash
-cd backend-2
+cd backend
 cp .env.example .env          # fill in SECRET_KEY, GROQ_API_KEY, MONO_*, BACHS_*
 uv sync
 uv run uvicorn app.main:app --reload
@@ -147,7 +147,7 @@ pnpm dev
 ### Docker (backend only)
 
 ```bash
-cd backend-2
+cd backend
 docker build -t foid-backend .
 docker run -p 8000:8000 --env-file .env foid-backend
 ```

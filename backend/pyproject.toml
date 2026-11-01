@@ -32,6 +32,8 @@ dependencies = [
     "numpy>=2.5.4",
     "opencv-python-headless==4.10.0.84",
     "resend>=2.50.0",
+    "faceliveness>=0.1.0",
+    "cryptography>=43",
 ]
 
 [tool.uv]

@@ -1,8 +1,8 @@
 # ── Build stage ────────────────────────────────────────────────────────────────
 #
-# Build from the REPO ROOT so both backend-2/ and frontend/ are in context:
+# Build from the REPO ROOT so both backend/ and frontend/ are in context:
 #
-#   docker build -f backend-2/Dockerfile -t foid-backend .
+#   docker build -f backend/Dockerfile -t foid-backend .
 #
 FROM python:3.12-slim AS builder
 
@@ -12,18 +12,24 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 WORKDIR /app
 
 # Copy dependency manifests first — leverage Docker layer cache
-COPY backend-2/pyproject.toml backend-2/uv.lock* ./
+COPY backend/pyproject.toml backend/uv.lock* ./
 
 # Install dependencies into /app/.venv (no system-site, reproducible)
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy application source + logo (email templates load it at runtime via
 # the second candidate path: app/services/logo-white.png)
-COPY backend-2/app/ ./app/
+COPY backend/app/ ./app/
 COPY frontend/public/logo-white.png ./app/services/logo-white.png
 
 # Install the project itself (registers entry-point scripts)
 RUN uv sync --frozen --no-dev
+
+# Bake the SFace face-recognition model (Apache-2.0, OpenCV Zoo) into the image
+# and check its SHA-256 (must match _SFACE_SHA256 in face_match_service.py).
+ADD --checksum=sha256:0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79 \
+    https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx \
+    ./app/data/models/face_recognition_sface_2021dec.onnx
 
 
 # ── Runtime stage ───────────────────────────────────────────────────────────────
@@ -43,7 +49,7 @@ COPY --from=builder /app/app   /app/app
 
 # Uploads directory — mount a named volume here in production for persistence:
 #   docker run -v foid_uploads:/app/uploads ...
-RUN mkdir -p uploads/avatars uploads/liveness uploads/proof_of_address
+RUN mkdir -p uploads/avatars uploads/proof_of_address
 
 # Make sure the venv binaries are on PATH
 ENV PATH="/app/.venv/bin:$PATH" \
@@ -70,6 +76,7 @@ import urllib.request, sys; \
 r = urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=8); \
 sys.exit(0 if r.status == 200 else 1)"
 
+# --workers must stay 1: liveness sessions are held in memory per process.
 CMD ["uvicorn", "app.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \

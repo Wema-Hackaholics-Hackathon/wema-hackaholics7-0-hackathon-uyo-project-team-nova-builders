@@ -14,8 +14,8 @@ from .connected_bank import ConnectedBank
 from .consent import Consent
 from .credential import Credential, CredentialClaims, DEFAULT_CLAIMS
 from .email_verification_token import EmailVerificationToken
+from .face_enrolment import FaceEnrolment, LivenessAttempt, UsedLivenessNonce
 from .ledger_entry import LedgerEntry
-from .liveness_session import LivenessSession
 from .notification import Notification
 from .password_reset_token import PasswordResetToken
 from .refresh_token import RefreshToken
@@ -31,7 +31,9 @@ __all__ = [
     "CredentialClaims",
     "DEFAULT_CLAIMS",
     "EmailVerificationToken",
-    "LivenessSession",
+    "FaceEnrolment",
+    "LivenessAttempt",
+    "UsedLivenessNonce",
     "Notification",
     "ConnectedBank",
     "Consent",

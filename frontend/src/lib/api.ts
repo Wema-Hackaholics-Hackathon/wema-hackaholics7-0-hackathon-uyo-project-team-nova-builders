@@ -1,5 +1,5 @@
 /**
- * Axios API client for the FOID backend (backend-2).
+ * Axios API client for the FOID backend (backend/).
  *
  * - Base URL: Vite proxy forwards /api/* → http://localhost:8000
  * - Attaches Authorization: Bearer <access_token> to every request

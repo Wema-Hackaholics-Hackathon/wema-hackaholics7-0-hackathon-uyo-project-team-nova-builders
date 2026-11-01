@@ -60,6 +60,10 @@ export interface User {
   bvn?: string | null
   phone?: string | null
   address?: string | null
+  /** Authenticated URL of the enrolled face record (null until enrolled) */
+  liveness_selfie_url?: string | null
+  /** When a face was last enrolled through a passed liveness check */
+  liveness_verified_at?: string | null
   email: string
   created_at: string
   email_verified: boolean
@@ -119,4 +123,34 @@ export interface MonoTransaction {
   balance: number   // kobo
   date: string      // ISO string
   category: string | null
+}
+
+/* ── Liveness + face matching (/auth/me/liveness/*) ─────────────────── */
+export type LivenessPurpose = 'enrol' | 'verify'
+
+export interface LivenessStart {
+  session_id: string
+  purpose: LivenessPurpose
+  challenges: string[]
+  instructions: string[]
+  expires_at: string
+}
+
+export interface LivenessFrameState {
+  status: 'in_progress' | 'passed' | 'failed'
+  done: boolean
+  current_challenge: string | null
+  remaining: number
+  fail_reason: string | null
+  face_count: number
+}
+
+export interface LivenessCompleteResult {
+  purpose: LivenessPurpose
+  passed: boolean
+  enrolled: boolean
+  matched: boolean | null
+  score: number | null
+  face_quality: number | null
+  message: string
 }

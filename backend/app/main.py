@@ -60,6 +60,33 @@ async def _token_cleanup_loop() -> None:
         await asyncio.sleep(_CLEANUP_INTERVAL_SECONDS)
 
 
+async def _liveness_sweep_loop() -> None:
+    """Background task: drop abandoned in-memory liveness sessions every minute."""
+    from .services.liveness_service import sweep_expired
+
+    while True:
+        await asyncio.sleep(60)
+        removed = sweep_expired()
+        if removed:
+            print(f"[liveness] swept {removed} expired session(s)", flush=True)
+
+
+async def _warm_liveness() -> None:
+    """Load the signing key and SFace model up front so the first check isn't slow."""
+    from starlette.concurrency import run_in_threadpool
+    from .services.face_match_service import ensure_sface_model
+    from .services.liveness_service import get_signing_key
+
+    get_signing_key()
+    try:
+        path = await run_in_threadpool(ensure_sface_model)
+        print(f"  SFace    : ✓ {path}", flush=True)
+    except Exception as exc:
+        if get_settings().ENV == "production":
+            raise
+        print(f"  SFace    : ✗ {exc} (face matching unavailable)", flush=True)
+
+
 async def _enable_wal_mode() -> None:
     """Enable SQLite WAL journal mode.
 
@@ -88,9 +115,12 @@ async def lifespan(_app: FastAPI):
     redis_ok = await redis_ping()
     print(f"  Database : {'✓ connected' if db_ok else '✗ unreachable'}")
     print(f"  Redis    : {'✓ connected' if redis_ok else '✗ unreachable (cache disabled)'}")
+    await _warm_liveness()
     cleanup_task = asyncio.create_task(_token_cleanup_loop())
+    sweep_task = asyncio.create_task(_liveness_sweep_loop())
     yield
     cleanup_task.cancel()
+    sweep_task.cancel()
 
 
 settings = get_settings()

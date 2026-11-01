@@ -1,8 +1,10 @@
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import RemixIcon from '../../components/RemixIcon'
 import StatCard from '../../components/StatCard'
 import { useAuth } from '../../contexts/AuthContext'
+import { useCredential } from '../../contexts/CredentialContext'
 import { api } from '../../lib/api'
 
 /* ── Toggle switch ───────────────────────────────────────────────────── */
@@ -231,7 +233,7 @@ function UtilityBillModal({ onClose }: { onClose: () => void }) {
 
 /* ── Identity doc row ────────────────────────────────────────────────── */
 type DocStatus = 'verified' | 'not-linked'
-function DocRow({ icon, name, sub, status, onAdd }: { icon: string; name: string; sub: string; status: DocStatus; onAdd?: () => void }) {
+function DocRow({ icon, name, sub, status, onAdd, onRemove }: { icon: string; name: string; sub: string; status: DocStatus; onAdd?: () => void; onRemove?: () => void }) {
   return (
     <div className="flex items-center gap-3 py-3 px-1 border-b border-neutral-100 last:border-0">
       <div className="w-9 h-9 rounded-lg bg-brand-500 flex items-center justify-center shrink-0">
@@ -242,10 +244,17 @@ function DocRow({ icon, name, sub, status, onAdd }: { icon: string; name: string
         <div className="text-[11px] text-neutral-400">{sub}</div>
       </div>
       {status === 'verified' ? (
-        <span className="flex items-center gap-1.5 rounded-full bg-brand-500 text-white text-[11px] font-semibold px-3 py-1">
-          <RemixIcon name="ri-checkbox-circle-fill" size={13} color="#fff" />
-          Verified
-        </span>
+        <>
+          {onRemove && (
+            <button onClick={onRemove} className="text-[12px] font-semibold text-neutral-500 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50">
+              Delete
+            </button>
+          )}
+          <span className="flex items-center gap-1.5 rounded-full bg-brand-500 text-white text-[11px] font-semibold px-3 py-1">
+            <RemixIcon name="ri-checkbox-circle-fill" size={13} color="#fff" />
+            Verified
+          </span>
+        </>
       ) : (
         <button onClick={onAdd} className="text-[12px] font-semibold text-neutral-800 hover:text-brand-500 transition-colors px-2 py-1 rounded-lg hover:bg-brand-50">
           Add
@@ -260,6 +269,19 @@ function DocRow({ icon, name, sub, status, onAdd }: { icon: string; name: string
 ══════════════════════════════════════════════════════════════════════ */
 export default function ProfileSettingsPage() {
   const { user, refreshUser } = useAuth()
+  const { refreshCredential } = useCredential()
+  const navigate = useNavigate()
+
+  /* Face data (liveness enrolment) — right to erasure */
+  async function deleteFaceData() {
+    if (!window.confirm('Delete your enrolled face data? Your identity will need to be re-verified with a new liveness check.')) return
+    try {
+      await api.delete('/auth/me/liveness/enrolment')
+      await Promise.all([refreshUser(), refreshCredential()])
+    } catch {
+      window.alert('Could not delete face data. Please try again.')
+    }
+  }
 
   /* Address edit */
   const [address, setAddress]       = useState(user?.address ?? '')
@@ -361,6 +383,16 @@ export default function ProfileSettingsPage() {
           <div className="divide-y divide-neutral-100">
             <DocRow icon="ri-bank-fill"              name="BVN"                    sub={user?.bvn ? 'Linked and Verified' : 'Not yet submitted'}  status={user?.bvn ? 'verified' : 'not-linked'} />
             <DocRow icon="ri-profile-fill"           name="NIN"                    sub="Linked and Verified"  status="verified"   />
+            <DocRow
+              icon="ri-user-smile-fill"
+              name="Face (liveness)"
+              sub={user?.liveness_verified_at
+                ? `Enrolled ${new Date(user.liveness_verified_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · encrypted`
+                : 'Complete the liveness check on My Identity'}
+              status={user?.liveness_verified_at ? 'verified' : 'not-linked'}
+              onAdd={() => navigate('/dashboard/identity')}
+              onRemove={() => void deleteFaceData()}
+            />
             <DocRow icon="ri-passport-fill"          name="International passport" sub="Not linked"           status="not-linked" />
             <DocRow icon="ri-lightbulb-flash-fill"   name="Utility bill"           sub="Not verified"         status="not-linked" onAdd={() => setShowUtility(true)} />
           </div>

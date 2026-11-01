@@ -1,239 +1,231 @@
-"""Liveness detection service — pure OpenCV, no external API.
+"""Liveness engine service — wraps the `faceliveness` SDK.
 
-Challenge pool:
-    look_left   — face centre x < 42% of frame width
-    look_right  — face centre x > 58% of frame width
-    look_up     — face centre y < 38% of frame height
-    look_down   — face centre y > 58% of frame height
-    open_mouth  — mouth region detected with sufficient vertical span
+The engine runs **on the server**, never on the user's device (a result computed
+on the device can be faked).  The flow mirrors face-liveness/demo/server.mjs:
 
-Detection uses OpenCV Haar cascades (bundled with opencv-python-headless):
-    - haarcascade_frontalface_default.xml  — face bounding box
-    - haarcascade_mcs_mouth.xml            — mouth open detection
-    - haarcascade_eye.xml                  — eye detection (used for face quality)
+  1. start_session()  → the server issues a signed ticket (it fixes the challenges)
+                        and builds an Engine from it.  The ticket never leaves
+                        the server; the client only gets the nonce + challenges.
+  2. process_frame()  → the client streams JPEG frames; each is decoded and fed to
+                        the engine with the SERVER clock as timestamp.
+  3. once done        → the engine signs a receipt (Ed25519 JWT) recording the
+                        outcome and the SHA-256 of the captured face PNG.
 
-All functions accept raw JPEG/PNG bytes (base64-decoded by the router)
-and return (passed: bool, reason: str).
+Sessions live in memory, keyed by nonce.  This requires a single uvicorn worker
+(the Dockerfile already runs --workers 1).
 """
 
 from __future__ import annotations
 
-import io
-import logging
-from dataclasses import dataclass
-from pathlib import Path
+import asyncio
+import random
+import time
+from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Literal
 
 import cv2
+import faceliveness
 import numpy as np
+from fastapi import HTTPException, status
+from starlette.concurrency import run_in_threadpool
 
-logger = logging.getLogger(__name__)
+from app.config import get_settings
 
-# ---------------------------------------------------------------------------
-# Challenge type
-# ---------------------------------------------------------------------------
+Purpose = Literal["enrol", "verify"]
 
-ChallengeType = Literal["look_left", "look_right", "look_up", "look_down", "open_mouth"]
+# Blinks are unreliable with glasses (see face-liveness docs/threat-model.md),
+# so challenges are drawn from head turns and mouth only.
+_CHALLENGE_POOL = ["turn_left", "turn_right", "open_mouth"]
 
-ALL_CHALLENGES: list[ChallengeType] = [
-    "look_left",
-    "look_right",
-    "look_up",
-    "look_down",
-    "open_mouth",
-]
+_TICKET_TTL_SECS = 120
+_SESSION_TTL_SECS = 180
+_MAX_SESSIONS = 50
+_MAX_FRAME_SIDE = 1280
+_MAX_FRAME_BYTES = 2 * 1024 * 1024
 
-# Human-readable instructions sent to the frontend
-CHALLENGE_INSTRUCTIONS: dict[ChallengeType, str] = {
-    "look_left": "Turn your head to the LEFT",
-    "look_right": "Turn your head to the RIGHT",
-    "look_up": "Tilt your head UP",
-    "look_down": "Tilt your head DOWN",
+CHALLENGE_PROMPTS: dict[str, str] = {
+    "blink": "Blink",
+    "turn_left": "Turn your head to your left",
+    "turn_right": "Turn your head to your right",
     "open_mouth": "Open your mouth wide",
 }
 
+
 # ---------------------------------------------------------------------------
-# Cascade loader — lazy, cached after first call
-# Cascades are bundled in app/data/cascades/ (OpenCV 5 dropped them from
-# the package, so we ship our own copies from the opencv/opencv 4.x repo).
+# Signing key
 # ---------------------------------------------------------------------------
 
-# Resolve relative to this file so it works from any working directory
-_CASCADE_DIR = Path(__file__).parent.parent / "data" / "cascades"
+@lru_cache
+def get_signing_key() -> faceliveness.SigningKey:
+    """Load LIVENESS_SIGNING_KEY (64 hex chars); generate an ephemeral one in dev."""
+    settings = get_settings()
+    if settings.LIVENESS_SIGNING_KEY:
+        return faceliveness.SigningKey.from_bytes(bytes.fromhex(settings.LIVENESS_SIGNING_KEY))
+    if settings.ENV == "production":
+        raise RuntimeError("LIVENESS_SIGNING_KEY must be set in production")
+    print(
+        "[liveness] WARNING: LIVENESS_SIGNING_KEY not set — using an ephemeral key "
+        "(receipts will not survive a restart)",
+        flush=True,
+    )
+    return faceliveness.SigningKey.generate()
 
-_face_cascade: cv2.CascadeClassifier | None = None
-_mouth_cascade: cv2.CascadeClassifier | None = None
 
-
-def _get_face_cascade() -> cv2.CascadeClassifier:
-    global _face_cascade
-    if _face_cascade is None:
-        path = str(_CASCADE_DIR / "haarcascade_frontalface_default.xml")
-        _face_cascade = cv2.CascadeClassifier(path)
-        if _face_cascade.empty():
-            raise RuntimeError(f"Failed to load face cascade from {path}")
-    return _face_cascade
-
-
-def _get_mouth_cascade() -> cv2.CascadeClassifier:
-    global _mouth_cascade
-    if _mouth_cascade is None:
-        # Use bundled smile cascade (works as open-mouth detector with tuned params)
-        path = str(_CASCADE_DIR / "haarcascade_smile.xml")
-        clf = cv2.CascadeClassifier(path)
-        if clf.empty():
-            raise RuntimeError(f"Failed to load mouth cascade from {path}")
-        _mouth_cascade = clf
-    return _mouth_cascade
+def get_public_key() -> bytes:
+    return get_signing_key().public_key
 
 
 # ---------------------------------------------------------------------------
-# Frame decoder
+# In-memory session store
 # ---------------------------------------------------------------------------
 
 @dataclass
-class FrameInfo:
-    gray: np.ndarray  # type: ignore[type-arg]
-    height: int
-    width: int
+class FinalResult:
+    passed: bool
+    fail_reason: str | None
+    receipt: str | None
+    face_png: bytes | None
 
-
-def _decode_frame(image_bytes: bytes) -> FrameInfo:
-    """Decode raw image bytes → grayscale numpy array."""
-    arr = np.frombuffer(image_bytes, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError("Could not decode image — ensure it is a valid JPEG or PNG")
-    h, w = img.shape[:2]
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # Equalise histogram for better detection in varying lighting
-    gray = cv2.equalizeHist(gray)
-    return FrameInfo(gray=gray, height=h, width=w)
-
-
-# ---------------------------------------------------------------------------
-# Face detection
-# ---------------------------------------------------------------------------
 
 @dataclass
-class FaceBox:
-    x: int
-    y: int
-    w: int
-    h: int
-    cx: float  # centre x as fraction of frame width  (0.0 – 1.0)
-    cy: float  # centre y as fraction of frame height (0.0 – 1.0)
+class LivenessRun:
+    nonce: str
+    user_id: str
+    purpose: Purpose
+    challenges: list[str]
+    engine: faceliveness.Engine
+    started: float = field(default_factory=time.monotonic)
+    expires_at: int = 0
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    final: FinalResult | None = None
+    last: dict[str, object] = field(default_factory=dict)
 
 
-def _detect_largest_face(frame: FrameInfo) -> FaceBox | None:
-    """Return the largest detected face bounding box, or None if no face found."""
-    faces = _get_face_cascade().detectMultiScale(
-        frame.gray,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(60, 60),
+_sessions: dict[str, LivenessRun] = {}
+
+
+def sweep_expired() -> int:
+    """Drop sessions older than the session TTL. Returns the number removed."""
+    cutoff = time.monotonic() - _SESSION_TTL_SECS
+    stale = [n for n, s in _sessions.items() if s.started < cutoff]
+    for nonce in stale:
+        del _sessions[nonce]
+    return len(stale)
+
+
+def start_session(user_id: str, purpose: Purpose) -> LivenessRun:
+    """Issue a ticket and build an engine. Replaces any session the user already has."""
+    sweep_expired()
+    for nonce in [n for n, s in _sessions.items() if s.user_id == user_id]:
+        del _sessions[nonce]
+    if len(_sessions) >= _MAX_SESSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Too many liveness checks in progress — try again shortly",
+        )
+
+    settings = get_settings()
+    key = get_signing_key()
+    count = max(1, min(settings.LIVENESS_CHALLENGE_COUNT, len(_CHALLENGE_POOL)))
+    challenges = random.SystemRandom().sample(_CHALLENGE_POOL, k=count)
+
+    ticket = key.issue_ticket(challenges, ttl_secs=_TICKET_TTL_SECS)
+    parsed = faceliveness.verify_ticket(ticket, key.public_key)
+    engine = faceliveness.Engine.from_ticket(ticket, key.public_key)
+
+    run = LivenessRun(
+        nonce=parsed.nonce,
+        user_id=user_id,
+        purpose=purpose,
+        challenges=list(parsed.challenges),
+        engine=engine,
+        expires_at=parsed.expires_at,
     )
-    if len(faces) == 0:
-        return None
-    # Pick largest by area
-    x, y, w, h = max(faces, key=lambda r: r[2] * r[3])  # type: ignore[assignment]
-    return FaceBox(
-        x=int(x), y=int(y), w=int(w), h=int(h),
-        cx=(x + w / 2) / frame.width,
-        cy=(y + h / 2) / frame.height,
-    )
+    _sessions[run.nonce] = run
+    return run
+
+
+def get_session(nonce: str, user_id: str) -> LivenessRun:
+    run = _sessions.get(nonce)
+    if run is None or run.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Liveness session not found or expired — start a new check",
+        )
+    return run
+
+
+def end_session(nonce: str) -> None:
+    _sessions.pop(nonce, None)
 
 
 # ---------------------------------------------------------------------------
-# Per-challenge verifiers
+# Frame processing
 # ---------------------------------------------------------------------------
 
-def _check_look_left(face: FaceBox) -> tuple[bool, str]:
-    # Face centre must be in the left 42% of the frame
-    if face.cx < 0.42:
-        return True, "Head turned left — ✓"
-    return False, f"Face centre at {face.cx:.0%} — turn further left (need < 42%)"
+def _decode_jpeg(data: bytes) -> np.ndarray:
+    if not data or len(data) > _MAX_FRAME_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Frame missing or too large",
+        )
+    frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Frame is not a valid image",
+        )
+    h, w = frame.shape[:2]
+    if max(h, w) > _MAX_FRAME_SIDE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Frame larger than {_MAX_FRAME_SIDE}px",
+        )
+    return frame
 
 
-def _check_look_right(face: FaceBox) -> tuple[bool, str]:
-    if face.cx > 0.58:
-        return True, "Head turned right — ✓"
-    return False, f"Face centre at {face.cx:.0%} — turn further right (need > 58%)"
+def _run_engine(run: LivenessRun, frame: np.ndarray, timestamp_ms: int) -> dict[str, object]:
+    result = run.engine.process(frame, timestamp_ms, format="bgr")
+    state: dict[str, object] = {
+        "status": result.status,
+        "done": result.done,
+        "current_challenge": result.current_challenge,
+        "remaining": result.remaining,
+        "fail_reason": result.fail_reason,
+        "face_count": result.face_count,
+    }
+    if result.done:
+        capture = run.engine.capture
+        receipt: str | None = None
+        try:
+            receipt = run.engine.receipt(get_signing_key())
+        except ValueError as exc:   # e.g. the ticket expired before the session ended
+            print(f"[liveness] receipt not issued for {run.nonce}: {exc}", flush=True)
+        passed = result.status == "passed" and receipt is not None
+        run.final = FinalResult(
+            passed=passed,
+            fail_reason=None if passed else (result.fail_reason or "timeout"),
+            receipt=receipt,
+            face_png=capture.png if capture is not None else None,
+        )
+        state["status"] = "passed" if run.final.passed else "failed"
+        state["fail_reason"] = run.final.fail_reason
+    return state
 
 
-def _check_look_up(face: FaceBox) -> tuple[bool, str]:
-    if face.cy < 0.38:
-        return True, "Head tilted up — ✓"
-    return False, f"Face centre at {face.cy:.0%} — tilt further up (need < 38%)"
-
-
-def _check_look_down(face: FaceBox) -> tuple[bool, str]:
-    if face.cy > 0.58:
-        return True, "Head tilted down — ✓"
-    return False, f"Face centre at {face.cy:.0%} — tilt further down (need > 58%)"
-
-
-def _check_open_mouth(frame: FrameInfo, face: FaceBox) -> tuple[bool, str]:
-    """Detect open mouth inside the lower half of the face region."""
-    # Crop to lower 55% of face (where mouth lives)
-    mouth_y_start = face.y + int(face.h * 0.45)
-    mouth_roi = frame.gray[
-        mouth_y_start : face.y + face.h,
-        face.x : face.x + face.w,
-    ]
-    if mouth_roi.size == 0:
-        return False, "Could not isolate mouth region"
-
-    mouths = _get_mouth_cascade().detectMultiScale(
-        mouth_roi,
-        scaleFactor=1.1,
-        minNeighbors=11,
-        minSize=(25, 15),
-    )
-    if len(mouths) > 0:
-        # Verify the detected region has sufficient vertical span (open ≠ closed)
-        _mx, _my, _mw, mh = mouths[0]
-        roi_height = mouth_roi.shape[0]
-        # Mouth height should be at least 20% of the ROI height when open
-        if mh / roi_height >= 0.18:
-            return True, "Open mouth detected — ✓"
-    return False, "Mouth not detected as open — open your mouth wider"
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def check_challenge(challenge: ChallengeType, image_bytes: bytes) -> tuple[bool, str]:
-    """Run face detection and verify the given challenge against the frame.
-
-    Returns:
-        (passed, human_readable_reason)
-    Raises:
-        ValueError  — image could not be decoded
-        RuntimeError — cascade files missing (shouldn't happen with opencv-python-headless)
-    """
-    frame = _decode_frame(image_bytes)
-    face = _detect_largest_face(frame)
-
-    if face is None:
-        return False, "No face detected — ensure your face is clearly visible and well-lit"
-
-    if challenge == "look_left":
-        return _check_look_left(face)
-    if challenge == "look_right":
-        return _check_look_right(face)
-    if challenge == "look_up":
-        return _check_look_up(face)
-    if challenge == "look_down":
-        return _check_look_down(face)
-    if challenge == "open_mouth":
-        return _check_open_mouth(frame, face)
-
-    return False, f"Unknown challenge: {challenge}"
-
-
-def pick_challenges(n: int = 3) -> list[ChallengeType]:
-    """Return n randomly selected distinct challenges from the pool."""
-    import random
-    return random.sample(ALL_CHALLENGES, k=min(n, len(ALL_CHALLENGES)))
+async def process_frame(run: LivenessRun, data: bytes) -> dict[str, object]:
+    """Feed one JPEG frame to the session's engine (one frame at a time per session)."""
+    if run.final is not None:
+        return run.last
+    if run.lock.locked():
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Previous frame still processing",
+        )
+    async with run.lock:
+        frame = _decode_jpeg(data)
+        # Server clock, never the client's — a client can't fake timing this way.
+        timestamp_ms = int((time.monotonic() - run.started) * 1000)
+        run.last = await run_in_threadpool(_run_engine, run, frame, timestamp_ms)
+        return run.last

@@ -87,6 +87,7 @@ class UserOut(BaseModel):
     proof_of_address_url: str | None
     avatar_url: str | None
     liveness_selfie_url: str | None
+    liveness_verified_at: datetime | None = None
     email: str
     created_at: datetime
     # Derived from credential claims — True once POST /auth/verify-email succeeds

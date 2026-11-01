@@ -362,6 +362,7 @@ async def me(
         proof_of_address_url=user.proof_of_address_url,
         avatar_url=user.avatar_url,
         liveness_selfie_url=user.liveness_selfie_url,
+        liveness_verified_at=user.liveness_verified_at,
         email=user.email,
         created_at=user.created_at,
         email_verified=email_verified,
@@ -495,6 +496,10 @@ async def identity_summary(
     state_label = (cred.state if cred else "unknown").replace("_", " ").title()
     row("State",                state_label)
     row("Identity verified",    "Yes" if claims.get("identity_verified") else "No")
+    row("Liveness check",       (
+        f"Passed {current_user.liveness_verified_at.strftime('%d %B %Y')}"
+        if current_user.liveness_verified_at else "Not completed"
+    ))
     row("BVN validated",        "Yes" if claims.get("bvn_validated") else "No")
     row("Account stability",    str(claims.get("account_stability", "—")).title())
     row("Repayment reliability", str(claims.get("repayment_reliability", "—")).title())

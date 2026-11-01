@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import RemixIcon from '@/components/RemixIcon'
+import LivenessCapture from '@/components/LivenessCapture'
 import { useCredential } from '@/contexts/CredentialContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { api, BASE_URL, getAccessToken } from '@/lib/api'
@@ -52,12 +53,12 @@ function TrustRing({ pct }: { pct: number }) {
   )
 }
 
-/* ── Step action panel (BVN / Phone input or Liveness) ──────────────── */
+/* ── Step action panel (BVN / Phone input) ──────────────────────────── */
 function StepAction({
   type,
   onSuccess,
 }: {
-  type: 'bvn' | 'phone' | 'liveness'
+  type: 'bvn' | 'phone'
   onSuccess: () => void
 }) {
   const [value, setValue]   = useState('')
@@ -66,31 +67,6 @@ function StepAction({
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { inputRef.current?.focus() }, [])
-
-  if (type === 'liveness') {
-    return (
-      <div className="mt-3 p-4 rounded-xl bg-neutral-50 border border-neutral-200 flex flex-col gap-3">
-        <div className="flex items-center gap-2 text-[13px] text-neutral-600">
-          <RemixIcon name="ri-camera-line" size={16} color="#a1a1aa" />
-          <span>Allow camera access, look at the camera and blink twice</span>
-        </div>
-        <button
-          onClick={() => {
-            setLoading(true)
-            // Mocked liveness: 2-second simulated check
-            setTimeout(() => { setLoading(false); onSuccess() }, 2000)
-          }}
-          disabled={loading}
-          className="flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-brand-500 text-white text-[13px] font-semibold hover:bg-brand-600 transition-colors disabled:opacity-60"
-        >
-          {loading
-            ? <><RemixIcon name="ri-loader-4-line" size={15} color="#fff" /> Checking…</>
-            : <><RemixIcon name="ri-camera-line" size={15} color="#fff" /> Start liveness check</>
-          }
-        </button>
-      </div>
-    )
-  }
 
   const isPhone  = type === 'phone'
   const label    = isPhone ? 'Phone number' : 'BVN'
@@ -153,12 +129,11 @@ const STATE_META: Record<string, { label: string; color: string; bg: string }> =
 ═══════════════════════════════════════════════════════════════════════ */
 export default function MyIdentityPage() {
   const navigate = useNavigate()
-  const { credential } = useCredential()
+  const { credential, refreshCredential } = useCredential()
   const { user, refreshUser } = useAuth()
   const stateMeta = STATE_META[credential.state] ?? STATE_META['active']
 
   const [banks, setBanks]               = useState<ConnectedBank[]>([])
-  const [livenessVerified, setLiveness] = useState(false)
   const [activeStep, setActiveStep]     = useState<string | null>(null)
   const [downloading, setDownloading]   = useState(false)
 
@@ -171,6 +146,7 @@ export default function MyIdentityPage() {
   const ninDone        = !!user?.nin
   const bvnDone        = !!user?.bvn
   const phoneVerified  = !!user?.phone
+  const livenessVerified = !!user?.liveness_verified_at
 
   type StepId = 'email' | 'nin' | 'bvn' | 'liveness' | 'phone'
   const steps: { id: StepId; label: string; icon: string; done: boolean }[] = [
@@ -401,9 +377,12 @@ export default function MyIdentityPage() {
                 )}
               </div>
               {activeStep === 'liveness' && !livenessVerified && (
-                <StepAction
-                  type="liveness"
-                  onSuccess={() => { setLiveness(true); setActiveStep(null) }}
+                <LivenessCapture
+                  purpose="enrol"
+                  onComplete={async () => {
+                    await Promise.all([refreshUser(), refreshCredential()])
+                    setActiveStep(null)
+                  }}
                 />
               )}
             </div>

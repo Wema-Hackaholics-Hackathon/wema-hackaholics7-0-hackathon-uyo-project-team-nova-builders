@@ -144,6 +144,8 @@ interface CredentialContextValue {
   notifications: Notification[]
   unreadCount: number
   triggerEvent: (event: TriggerEvent) => void
+  /** Re-fetch the credential after a server-side claim change (e.g. liveness) */
+  refreshCredential: () => Promise<void>
   markAllRead: () => void
   markRead: (id: string) => void
 }
@@ -158,12 +160,18 @@ export function CredentialProvider({ children }: { children: ReactNode }) {
   const notifIdRef = useRef(0)
 
   // ── Fetch real credential from backend on mount ──────────────────────
-  useEffect(() => {
-    api.get<FoidCredential>('/credentials/me')
-      .then(r => setCredential(r.data))
-      .catch(() => { /* leave EMPTY_CREDENTIAL in place — not yet issued */ })
-      .finally(() => setLoading(false))
+  const refreshCredential = useCallback(async () => {
+    try {
+      const r = await api.get<FoidCredential>('/credentials/me')
+      setCredential(r.data)
+    } catch {
+      /* leave current credential in place — not yet issued */
+    }
   }, [])
+
+  useEffect(() => {
+    void refreshCredential().finally(() => setLoading(false))
+  }, [refreshCredential])
 
   const triggerEvent = useCallback((event: TriggerEvent) => {
     const meta = TRIGGER_EVENTS.find(e => e.event === event)
@@ -219,7 +227,7 @@ export function CredentialProvider({ children }: { children: ReactNode }) {
   const unreadCount = notifications.filter(n => !n.read).length
 
   return (
-    <CredentialContext.Provider value={{ credential, loading, notifications, unreadCount, triggerEvent, markAllRead, markRead }}>
+    <CredentialContext.Provider value={{ credential, loading, notifications, unreadCount, triggerEvent, refreshCredential, markAllRead, markRead }}>
       {children}
     </CredentialContext.Provider>
   )

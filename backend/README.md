@@ -13,7 +13,8 @@ FastAPI backend for the FOID Identity & Digital Risk Assessment platform.
 | **Argon2-cffi** | Password hashing (Argon2id) |
 | **python-jose** | HS256 JWT access tokens |
 | **Groq** | AI receipt OCR and financial chat |
-| **OpenCV 4.10** | Active liveness challenge detection (Haar cascades) |
+| **faceliveness 0.1** | Server-side active liveness (head turns / mouth), signed Ed25519 receipts |
+| **OpenCV 4.10 + SFace** | JPEG frame decode; SFace (Apache-2.0) face embeddings for 1:1 matching |
 | **httpx** | Async HTTP client for Mono, Bachs, webhooks |
 | **fpdf2** | PDF report and identity summary generation |
 | **slowapi** | Per-IP rate limiting |
@@ -31,7 +32,7 @@ FastAPI backend for the FOID Identity & Digital Risk Assessment platform.
 
 ```bash
 # 1. Enter the backend directory — MUST run from here, not repo root
-cd backend-2
+cd backend
 
 # 2. Install all dependencies
 uv sync
@@ -48,7 +49,7 @@ cp .env.example .env
 
 ```bash
 # Dev server with hot-reload
-cd backend-2
+cd backend
 uv run uvicorn app.main:app --reload --port 8000
 
 # Or use the project script alias
@@ -68,7 +69,7 @@ uv run foid-dev
 
 ```bash
 # Build
-cd backend-2
+cd backend
 docker build -t foid-backend .
 
 # Run (SQLite, ephemeral)
@@ -132,14 +133,16 @@ All endpoints are versioned under `/api/v1/`.
 
 ### Liveness — `/api/v1/auth/me/liveness/`
 
-3-step active challenge flow (face detection via OpenCV):
+Server-side liveness ([faceliveness](https://pypi.org/project/faceliveness/)) + SFace face matching:
 
-| Method | Path | Description |
-|---|---|---|
-| POST | `/start` | Create session; returns 3 random challenges |
-| POST | `/ping` | Lightweight face-detection probe (no DB write) |
-| POST | `/verify` | Submit one challenge frame |
-| POST | `/complete` | Finalise session → flips `identity_verified`, saves selfie |
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/start` | Verified email | `{purpose: "enrol"\|"verify", consent}` → `{session_id, challenges, instructions, expires_at}`. Enrol requires `consent=true` |
+| POST | `/{session_id}/frame` | Bearer | Raw `image/jpeg` body (320×240 recommended), one at a time (429 if overlapping) → `{status, done, current_challenge, remaining, fail_reason, face_count}` |
+| POST | `/{session_id}/complete` | Verified email | Enrol: store encrypted template, flip `identity_verified`. Verify: 1:1 match → `{matched, score}` |
+| GET | `/status` | Bearer | `{enrolled, verified_at, face_quality}` |
+| GET | `/face` | Bearer | The user's own enrolled 112×112 face-record PNG |
+| DELETE | `/enrolment` | Bearer | Delete template + face, reset `identity_verified` |
 
 ### Credentials — `/api/v1/credentials/`
 
@@ -216,7 +219,7 @@ Platform data access consent management (create / list / approve / revoke).
 
 ### Dev (SQLite)
 
-`foid.db` is created automatically at `backend-2/foid.db` on first start via `init_db()`.
+`foid.db` is created automatically at `backend/foid.db` on first start via `init_db()`.
 No migration command needed in dev — tables are created/updated on startup.
 
 ### Production (PostgreSQL)
@@ -245,19 +248,35 @@ without re-running already-applied DDL.
 | `refresh_tokens` | Rotating refresh tokens (SHA-256 hashed) |
 | `email_verification_tokens` | 6-digit OTP tokens for email verification |
 | `password_reset_tokens` | 6-digit OTP + single-use reset token for password reset |
-| `liveness_sessions` | Active challenge sessions (TTL 10 minutes) |
+| `face_enrolments` | One per user: Fernet-encrypted SFace template + exact face-record PNG + signed receipt |
+| `used_liveness_nonces` | Accepted liveness receipt nonces (replay protection) |
+| `liveness_attempts` | Audit of enrol/verify attempts (no images) |
 
 ---
 
 ## Liveness Check
 
-Challenges: `look_left`, `look_right`, `look_up`, `look_down`, `open_mouth`
+Flow (`app/services/liveness_service.py`, `app/services/face_match_service.py`):
 
-Each session issues 3 random challenges. OpenCV 4.10 Haar cascade classifiers
-(`haarcascade_frontalface_default.xml`, `haarcascade_eye.xml`, `haarcascade_smile.xml`)
-are bundled in `app/data/cascades/`.
+1. `/start` — the server issues a signed ticket (`SigningKey.issue_ticket`) that fixes the
+   challenges (`turn_left`, `turn_right`, `open_mouth`; blink is excluded, unreliable with
+   glasses). The ticket stays on the server; the client only gets the nonce + challenges.
+2. `/frame` — each JPEG is decoded and fed to `Engine.process` with the **server clock**.
+3. When done, the engine signs a receipt (Ed25519 JWT) holding the SHA-256 of the captured
+   112×112 aligned face PNG.
+4. `/complete` — `verify_face_record` (signature, expiry, passed, PNG hash) → reject reused
+   nonce → reject quality < `FACE_MIN_QUALITY` → SFace embedding → enrol or cosine match
+   against `FACE_MATCH_THRESHOLD`.
 
-> **Note:** OpenCV 5.x removed `CascadeClassifier` — the project pins `opencv-python-headless==4.10.0.84`.
+Env vars: `LIVENESS_SIGNING_KEY`, `FACE_TEMPLATE_KEY` (both **required in production**),
+`LIVENESS_CHALLENGE_COUNT`, `FACE_MATCH_THRESHOLD`, `FACE_MIN_QUALITY`, `SFACE_MODEL_PATH`.
+The SFace model (~37 MB) downloads on first start and is SHA-256 checked; the Docker image bakes it in.
+
+> **Single worker only:** liveness sessions live in memory — run uvicorn with `--workers 1`.
+
+> **Known limits:** passive anti-spoofing (`real_score`) is uncalibrated and report-only, so
+> phone-screen replays are not reliably caught; no defence against deepfakes, virtual cameras
+> or 3D masks; the match threshold has not been measured on FOID users yet.
 
 ---
 
@@ -279,5 +298,6 @@ A cleanup loop runs every 6 hours (started in the FastAPI `lifespan`) and delete
 | Single `await db.commit()` per request | Atomicity — partial rows never written |
 | `init_db()` on startup (dev) | Zero migration friction for development |
 | `apply_monthly_refresh()` called lazily on wallet read | No cron needed — free credits reset on first use each month |
-| OpenCV 4.10 pinned | 5.x removed CascadeClassifier |
+| Liveness engine on the server, not the device | A result computed on the device can be faked |
+| Face templates Fernet-encrypted, deletable | Biometric data — NDPA 2023 |
 | Bachs webhook verified with HMAC-SHA256 before processing | Credits never added without cryptographic proof of payment |
