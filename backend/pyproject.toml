@@ -54,6 +54,7 @@ foid-test = "app.__main__:run_tests"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning:tests.conftest"]
 
 [tool.basedpyright]
 # Circular imports under TYPE_CHECKING are an intentional SQLModel pattern

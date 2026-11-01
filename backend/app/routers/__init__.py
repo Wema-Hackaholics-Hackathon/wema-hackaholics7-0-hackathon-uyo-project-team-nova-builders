@@ -7,6 +7,10 @@ Import each router here and add it to ``__all__`` so that
 from .admin import router as admin_router
 from .auth import router as auth_router
 from .banks import router as banks_router
+from .business import router as business_router
+from .connected_apps import router as connected_apps_router
+from .hosted import router as hosted_router
+from .open_api import router as open_api_router
 from .consents import router as consents_router
 from .credentials import router as credentials_router
 from .ledger import router as ledger_router
@@ -19,6 +23,10 @@ __all__ = [
     "admin_router",
     "auth_router",
     "banks_router",
+    "business_router",
+    "connected_apps_router",
+    "hosted_router",
+    "open_api_router",
     "consents_router",
     "credentials_router",
     "ledger_router",

@@ -3,8 +3,8 @@
 face_enrolments       — one per user: the encrypted SFace template plus the exact
                         face-record PNG and signed receipt it came from (stored
                         unchanged so the record can be re-verified later).
-used_liveness_nonces  — every accepted liveness receipt nonce; a receipt must
-                        work only once (replay protection).
+used_liveness_nonces  — every accepted liveness receipt nonce (FOID users and
+                        business subjects); a receipt must work only once.
 liveness_attempts     — audit trail of enrol / verify attempts. No images.
 
 ON DELETE CASCADE: deleting a User removes all three.
@@ -52,13 +52,24 @@ class UsedLivenessNonce(SQLModel, table=True):
     __tablename__: ClassVar[str] = "used_liveness_nonces"  # pyright: ignore[reportIncompatibleVariableOverride]
 
     nonce: str = Field(primary_key=True)
-    user_id: str = Field(
+    # Exactly one owner: a FOID user, or a business's subject (Open API liveness)
+    user_id: str | None = Field(
+        default=None,
         sa_column=Column(
             String,
             ForeignKey("users.id", ondelete="CASCADE"),
             index=True,
-            nullable=False,
-        )
+            nullable=True,
+        ),
+    )
+    subject_id: str | None = Field(
+        default=None,
+        sa_column=Column(
+            String,
+            ForeignKey("subjects.id", ondelete="CASCADE"),
+            index=True,
+            nullable=True,
+        ),
     )
     purpose: str
     created_at: datetime = Field(default_factory=_now)

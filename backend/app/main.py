@@ -10,7 +10,9 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from .config import check_db, get_settings, init_db
+from .core.api_errors import ApiError, api_error_handler
 from .routers import *
+from .services.webhook_service import webhook_loop
 from .utils.cache import ping as redis_ping
 from .utils.limiter import limiter
 
@@ -69,6 +71,15 @@ async def _liveness_sweep_loop() -> None:
         removed = sweep_expired()
         if removed:
             print(f"[liveness] swept {removed} expired session(s)", flush=True)
+        try:
+            from .config import _get_session_factory
+            from .services.checks_service import expire_stale_verifications
+
+            expired = await expire_stale_verifications(_get_session_factory())
+            if expired:
+                print(f"[verifications] expired {expired} unfinished verification(s)", flush=True)
+        except Exception as exc:
+            print(f"[verifications] expiry error: {exc}", flush=True)
 
 
 async def _warm_liveness() -> None:
@@ -118,15 +129,18 @@ async def lifespan(_app: FastAPI):
     await _warm_liveness()
     cleanup_task = asyncio.create_task(_token_cleanup_loop())
     sweep_task = asyncio.create_task(_liveness_sweep_loop())
+    webhook_task = asyncio.create_task(webhook_loop())
     yield
     cleanup_task.cancel()
     sweep_task.cancel()
+    webhook_task.cancel()
 
 
 settings = get_settings()
 
 app = FastAPI(lifespan=lifespan)
 app.state.limiter = limiter
+app.add_exception_handler(ApiError, api_error_handler)
 app.add_exception_handler(
     RateLimitExceeded,
     _rate_limit_exceeded_handler,  # pyright: ignore[reportArgumentType]
@@ -162,6 +176,9 @@ v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(admin_router)
 v1_router.include_router(auth_router)
 v1_router.include_router(banks_router)
+v1_router.include_router(business_router)
+v1_router.include_router(connected_apps_router)
+v1_router.include_router(hosted_router)
 v1_router.include_router(consents_router)
 v1_router.include_router(credentials_router)
 v1_router.include_router(ledger_router)
@@ -171,3 +188,4 @@ v1_router.include_router(reports_router)
 v1_router.include_router(wallet_router)
 
 app.include_router(v1_router)
+app.include_router(open_api_router)   # public business API: /api/open/v1/*

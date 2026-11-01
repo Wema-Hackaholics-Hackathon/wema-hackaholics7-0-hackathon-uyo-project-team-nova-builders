@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     FACE_MIN_QUALITY: float = 0.3
     SFACE_MODEL_PATH: str = "app/data/models/face_recognition_sface_2021dec.onnx"
 
+    # Business platform (Open API)
+    PUBLIC_APP_URL: str = "http://localhost:5173"   # base for hosted verification links
+    IDENTITY_PROVIDER: Literal["mock"] = "mock"     # NIN/BVN lookups; real adapters plug in here
+    DATA_ENCRYPTION_KEY: str = ""       # Fernet key for secrets at rest; derived from SECRET_KEY in dev
+    PII_HASH_KEY: str = ""              # HMAC key for NIN/BVN lookup hashes; derived in dev
+    VERIFICATION_TTL_HOURS: int = 24    # hosted verification link lifetime
+
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:5173"
 

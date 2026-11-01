@@ -17,6 +17,7 @@ import LoginPage from './pages/auth/LoginPage.tsx'
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import LandingPage from './pages/LandingPage.tsx'
+import HostedVerificationPage from './pages/verify/HostedVerificationPage.tsx'
 import { CredentialProvider } from './contexts/CredentialContext.tsx'
 
 export default function App() {
@@ -31,6 +32,9 @@ export default function App() {
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+
+      {/* Hosted business verification (Open API) — no login required */}
+      <Route path="/verify/:token" element={<HostedVerificationPage />} />
 
       <Route path="/dashboard" element={
         <ProtectedRoute>

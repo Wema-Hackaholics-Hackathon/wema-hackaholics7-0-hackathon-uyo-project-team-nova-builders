@@ -10,6 +10,21 @@ Add new model imports here as they are created.
 
 from sqlmodel import SQLModel
 
+from .business import (
+    ApiKey,
+    AuditLog,
+    CheckResult,
+    ConsentGrant,
+    IdempotencyRecord,
+    Organisation,
+    OrgMember,
+    Subject,
+    SubjectFace,
+    UsageEvent,
+    Verification,
+    WebhookDelivery,
+    WebhookEndpoint,
+)
 from .connected_bank import ConnectedBank
 from .consent import Consent
 from .credential import Credential, CredentialClaims, DEFAULT_CLAIMS
@@ -31,6 +46,19 @@ __all__ = [
     "CredentialClaims",
     "DEFAULT_CLAIMS",
     "EmailVerificationToken",
+    "ApiKey",
+    "AuditLog",
+    "CheckResult",
+    "ConsentGrant",
+    "IdempotencyRecord",
+    "Organisation",
+    "OrgMember",
+    "Subject",
+    "SubjectFace",
+    "UsageEvent",
+    "Verification",
+    "WebhookDelivery",
+    "WebhookEndpoint",
     "FaceEnrolment",
     "LivenessAttempt",
     "UsedLivenessNonce",

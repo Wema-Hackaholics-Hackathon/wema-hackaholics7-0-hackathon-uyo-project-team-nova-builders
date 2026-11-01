@@ -104,3 +104,64 @@ async def chat(
     )
 
     return response.choices[0].message.content or ""
+
+
+# ---------------------------------------------------------------------------
+# NIN document OCR (Open API: nin check, method="document")
+# ---------------------------------------------------------------------------
+
+class ParsedNinDocument(TypedDict):
+    document_type: str        # nin_slip | improved_nin_slip | nimc_card | other | unreadable
+    nin: str | None           # 11 digits, or null if not readable
+    first_name: str | None
+    middle_name: str | None
+    last_name: str | None
+    confidence: float
+
+
+_NIN_DOC_PROMPT = """
+You read Nigerian identity documents. The image should be an NIN slip, an improved NIN slip,
+or an NIMC national ID card. Extract ONLY:
+- document_type: "nin_slip", "improved_nin_slip", "nimc_card", "other" (a different document) or "unreadable"
+- nin: the 11-digit National Identification Number (digits only), or null if you cannot read all 11 digits
+- first_name, middle_name, last_name: as printed (null if absent)
+- confidence: 0.0-1.0 that the NIN digits are read exactly right
+
+Never guess digits. Respond ONLY with JSON, no markdown:
+{"document_type":"nin_slip","nin":"12345678901","first_name":"...","middle_name":null,"last_name":"...","confidence":0.9}
+""".strip()
+
+
+class OcrUnavailable(Exception):
+    pass
+
+
+async def extract_nin_document(file_bytes: bytes, mime_type: str) -> ParsedNinDocument:
+    """Vision OCR of an NIN slip / NIMC card → the NIN (and printed names for matching)."""
+    api_key = get_settings().GROQ_API_KEY
+    if not api_key:
+        raise OcrUnavailable("Document OCR is not configured (GROQ_API_KEY)")
+    b64 = base64.b64encode(file_bytes).decode()
+    client = AsyncGroq(api_key=api_key)
+    response = await client.chat.completions.create(
+        model=_VISION_MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64}"}},
+                    {"type": "text", "text": _NIN_DOC_PROMPT},
+                ],
+            }
+        ],
+        max_tokens=256,
+        temperature=0.0,
+    )
+    raw = (response.choices[0].message.content or "{}").strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`").removeprefix("json").strip()
+    try:
+        parsed: ParsedNinDocument = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise OcrUnavailable("Could not read the document") from exc
+    return parsed

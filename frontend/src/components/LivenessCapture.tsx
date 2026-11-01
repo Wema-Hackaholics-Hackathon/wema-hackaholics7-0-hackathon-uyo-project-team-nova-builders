@@ -1,15 +1,22 @@
 /**
  * Server-verified liveness check (faceliveness SDK on the backend).
  *
- * Camera → 320×240 JPEG frames → POST /auth/me/liveness/{id}/frame, one at a
- * time. The server runs the engine, decides pass/fail and signs the receipt;
+ * Camera → 320×240 JPEG frames → POST {endpoint}/{id}/frame, one at a time.
+ * Used by the FOID dashboard (endpoint "/auth/me/liveness") and by the hosted
+ * business verification page (endpoint "/hosted/sessions/{token}/liveness"). The server runs the engine, decides pass/fail and signs the receipt;
  * this component only shows the prompts. Frames are sent un-mirrored — only
  * the preview is flipped with CSS.
  */
 import { useEffect, useRef, useState } from 'react'
 import RemixIcon from '@/components/RemixIcon'
 import { api } from '@/lib/api'
-import type { LivenessCompleteResult, LivenessFrameState, LivenessPurpose, LivenessStart } from '@/types/foid'
+import type { LivenessFrameState, LivenessPurpose, LivenessStart } from '@/types/foid'
+
+/** Fields every complete endpoint returns (first-party adds enrolment/match details). */
+export interface LivenessOutcome {
+  passed: boolean
+  message: string
+}
 
 const FRAME_WIDTH = 320
 const FRAME_HEIGHT = 240
@@ -39,23 +46,36 @@ function errorDetail(e: unknown, fallback: string): string {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-export default function LivenessCapture({
+export default function LivenessCapture<T extends LivenessOutcome = LivenessOutcome>({
   purpose = 'enrol',
+  endpoint = '/auth/me/liveness',
+  consentRequired = purpose === 'enrol',
+  autoStart = purpose === 'verify',
   onComplete,
+  onAttempt,
 }: {
   purpose?: LivenessPurpose
-  onComplete: (result: LivenessCompleteResult) => void
+  /** Base path of the start / frame / complete routes */
+  endpoint?: string
+  /** Show the biometric consent checkbox before starting */
+  consentRequired?: boolean
+  /** Open the camera immediately instead of showing a start button */
+  autoStart?: boolean
+  /** Called when a check passes */
+  onComplete: (result: T) => void
+  /** Called after every finished attempt, passed or not */
+  onAttempt?: (result: T) => void
 }) {
   const videoRef  = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const activeRef = useRef(false)
 
-  const [phase, setPhase]       = useState<Phase>(purpose === 'enrol' ? 'consent' : 'starting')
+  const [phase, setPhase]       = useState<Phase>(autoStart ? 'starting' : 'consent')
   const [consent, setConsent]   = useState(false)
   const [prompt, setPrompt]     = useState('Position your face in the frame')
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [error, setError]       = useState('')
-  const [result, setResult]     = useState<LivenessCompleteResult | null>(null)
+  const [result, setResult]     = useState<T | null>(null)
 
   function stopCamera() {
     activeRef.current = false
@@ -65,7 +85,7 @@ export default function LivenessCapture({
 
   useEffect(() => stopCamera, [])
   useEffect(() => {
-    if (purpose === 'verify') void run()
+    if (autoStart) void run()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -86,17 +106,17 @@ export default function LivenessCapture({
     } catch {
       stopCamera()
       setError('Camera access is needed for the liveness check. Allow it in your browser and try again.')
-      setPhase(purpose === 'enrol' ? 'consent' : 'result')
+      setPhase(autoStart ? 'result' : 'consent')
       return
     }
 
     let session: LivenessStart
     try {
-      session = (await api.post<LivenessStart>('/auth/me/liveness/start', { purpose, consent })).data
+      session = (await api.post<LivenessStart>(`${endpoint}/start`, { purpose, consent })).data
     } catch (e) {
       stopCamera()
       setError(errorDetail(e, 'Could not start the liveness check.'))
-      setPhase(purpose === 'enrol' ? 'consent' : 'result')
+      setPhase(autoStart ? 'result' : 'consent')
       return
     }
 
@@ -121,7 +141,7 @@ export default function LivenessCapture({
       if (!blob) continue
       try {
         state = (await api.post<LivenessFrameState>(
-          `/auth/me/liveness/${session.session_id}/frame`,
+          `${endpoint}/${session.session_id}/frame`,
           blob,
           { headers: { 'Content-Type': 'image/jpeg' } },
         )).data
@@ -148,11 +168,10 @@ export default function LivenessCapture({
 
     setPhase('finishing')
     try {
-      const res = (await api.post<LivenessCompleteResult>(
-        `/auth/me/liveness/${session.session_id}/complete`,
-      )).data
+      const res = (await api.post<T>(`${endpoint}/${session.session_id}/complete`)).data
       setResult(res)
       setPhase('result')
+      onAttempt?.(res)
       if (!res.passed) {
         setError(FAILURES[state?.fail_reason ?? ''] ?? res.message)
       } else {
@@ -205,7 +224,7 @@ export default function LivenessCapture({
             <RemixIcon name="ri-camera-line" size={16} color="#a1a1aa" />
             <span>Allow camera access, then follow the on-screen prompts</span>
           </div>
-          <label className="flex items-start gap-2 text-[12.5px] text-neutral-600 cursor-pointer">
+          {consentRequired && <label className="flex items-start gap-2 text-[12.5px] text-neutral-600 cursor-pointer">
             <input
               type="checkbox"
               checked={consent}
@@ -216,7 +235,7 @@ export default function LivenessCapture({
               I consent to FOID processing my face to verify my identity. An encrypted face
               template is stored and I can delete it at any time from Profile Settings.
             </span>
-          </label>
+          </label>}
         </>
       )}
 
@@ -238,7 +257,7 @@ export default function LivenessCapture({
 
       {phase === 'running' && (
         <button
-          onClick={() => { stopCamera(); setProgress({ done: 0, total: 0 }); setPhase(purpose === 'enrol' ? 'consent' : 'result') }}
+          onClick={() => { stopCamera(); setProgress({ done: 0, total: 0 }); setPhase(autoStart ? 'result' : 'consent') }}
           className="flex items-center justify-center gap-2 py-2 px-4 rounded-lg border border-neutral-200 bg-white text-neutral-700 text-[13px] font-semibold hover:bg-neutral-100 transition-colors"
         >
           Stop
@@ -248,7 +267,7 @@ export default function LivenessCapture({
       {(phase === 'consent' || (phase === 'result' && !result?.passed)) && (
         <button
           onClick={() => void run()}
-          disabled={purpose === 'enrol' && !consent}
+          disabled={consentRequired && !consent}
           className="flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-brand-500 text-white text-[13px] font-semibold hover:bg-brand-600 transition-colors disabled:opacity-60"
         >
           <RemixIcon name="ri-camera-line" size={15} color="#fff" />

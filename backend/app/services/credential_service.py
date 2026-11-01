@@ -199,5 +199,45 @@ async def apply_trigger(
 
     db.add(credential)
     db.add(notification)
+    await notify_businesses(db, credential, prev_state)
 
     return credential, notification
+
+
+async def notify_businesses(db: AsyncSession, credential: Credential, prev_state: str) -> int:
+    """Send `credential.state_changed` to every business monitoring this person.
+
+    Only businesses holding an ACTIVE consent grant with the `financial` scope
+    on a subject linked to this user are notified.
+    """
+    from sqlmodel import select
+
+    from ..models import ConsentGrant, Subject
+    from .webhook_service import enqueue_event
+
+    rows = (await db.exec(
+        select(Subject, ConsentGrant)
+        .join(ConsentGrant, ConsentGrant.subject_id == Subject.id)  # pyright: ignore[reportArgumentType]
+        .where(Subject.user_id == credential.user_id, ConsentGrant.status == "active")
+    )).all()
+    sent: set[str] = set()
+    for subject, grant in rows:
+        if "financial" not in grant.scopes or subject.id in sent:
+            continue
+        sent.add(subject.id)
+        claims = dict(credential.claims)
+        await enqueue_event(
+            db, org_id=subject.org_id, env=subject.env, event_type="credential.state_changed",
+            subject_id=subject.id,
+            data={
+                "subject_id": subject.id,
+                "customer_ref": subject.customer_ref,
+                "previous_state": prev_state,
+                "credential_state": credential.state,
+                "income_band": claims.get("income_band"),
+                "account_stability": claims.get("account_stability"),
+                "repayment_reliability": claims.get("repayment_reliability"),
+                "changed_at": credential.updated_at.isoformat(),
+            },
+        )
+    return len(sent)

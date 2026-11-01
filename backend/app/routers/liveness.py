@@ -37,6 +37,7 @@ from app.core.dependencies import get_current_user, require_verified_email
 from app.models import Credential, FaceEnrolment, LivenessAttempt, Notification, User
 from app.services import face_match_service as fm
 from app.services import liveness_service as ls
+from app.services.subject_link_service import link_subjects_for_user
 from app.utils.limiter import limiter
 
 router = APIRouter(prefix="/auth/me/liveness", tags=["liveness"])
@@ -214,7 +215,7 @@ async def complete_liveness(
         embedding = await run_in_threadpool(fm.embed, accepted.face_png)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Could not read the captured face: {exc}",
         ) from exc
 
@@ -245,6 +246,8 @@ async def complete_liveness(
         current_user.liveness_verified_at = _now()
         db.add(current_user)
         await _set_identity_claim(current_user, True, db)
+        await db.flush()
+        await link_subjects_for_user(db, current_user)
 
         db.add(LivenessAttempt(
             user_id=current_user.id, nonce=run.nonce, purpose="enrol", passed=True,

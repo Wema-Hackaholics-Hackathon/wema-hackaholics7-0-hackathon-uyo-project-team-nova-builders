@@ -107,7 +107,8 @@ class AcceptedFace:
 async def accept_face_record(
     *,
     db: AsyncSession,
-    user_id: str,
+    user_id: str | None = None,
+    subject_id: str | None = None,
     purpose: str,
     receipt: str,
     face_png: bytes,
@@ -117,12 +118,12 @@ async def accept_face_record(
         r = faceliveness.verify_face_record(receipt, get_public_key(), face_png)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Liveness record rejected: {exc}",
         ) from exc
 
     # A receipt must work only once.
-    db.add(UsedLivenessNonce(nonce=r.nonce, user_id=user_id, purpose=purpose))
+    db.add(UsedLivenessNonce(nonce=r.nonce, user_id=user_id, subject_id=subject_id, purpose=purpose))
     try:
         await db.flush()
     except IntegrityError as exc:
@@ -135,7 +136,7 @@ async def accept_face_record(
     quality = r.face_quality or 0.0
     if quality < get_settings().FACE_MIN_QUALITY:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Face image quality too low — face the camera in good light and try again",
         )
 

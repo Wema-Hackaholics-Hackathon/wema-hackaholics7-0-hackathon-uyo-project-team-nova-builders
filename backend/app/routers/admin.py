@@ -194,3 +194,52 @@ async def update_verifications(
     await db.refresh(cred)
 
     return CredentialOut.model_validate(cred)
+
+
+# ---------------------------------------------------------------------------
+# Business organisations — KYB review (live mode)
+# ---------------------------------------------------------------------------
+
+class KybDecision(BaseModel):
+    approve: bool
+    note: str | None = None
+
+
+@router.get("/organisations")
+async def admin_list_organisations(
+    _admin: Annotated[User, Depends(get_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    kyb_status: str | None = None,
+) -> list[dict[str, object]]:
+    from ..models import Organisation
+
+    q = select(Organisation)
+    if kyb_status:
+        q = q.where(Organisation.kyb_status == kyb_status)
+    rows = (await db.exec(q)).all()
+    return [
+        {"id": o.id, "name": o.name, "rc_number": o.rc_number, "kyb_status": o.kyb_status,
+         "live_enabled": o.live_enabled, "status": o.status, "website": o.website}
+        for o in rows
+    ]
+
+
+@router.post("/organisations/{org_id}/kyb")
+async def admin_decide_kyb(
+    org_id: str,
+    body: KybDecision,
+    admin: Annotated[User, Depends(get_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, object]:
+    from ..models import AuditLog, Organisation
+
+    org = await db.get(Organisation, org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    org.kyb_status = "approved" if body.approve else "rejected"
+    org.live_enabled = body.approve
+    db.add(org)
+    db.add(AuditLog(org_id=org.id, actor_type="user", actor_id=admin.id,
+                    action="kyb.approved" if body.approve else "kyb.rejected", meta={"note": body.note}))
+    await db.commit()
+    return {"id": org.id, "kyb_status": org.kyb_status, "live_enabled": org.live_enabled}

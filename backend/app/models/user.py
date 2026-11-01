@@ -33,6 +33,8 @@ class User(SQLModel, table=True):
     middle_name: str | None = Field(default=None)
     # Nigerian National Identification Number — required at signup
     nin: str = Field(index=True)
+    # Keyed hash of the NIN (app.core.crypto.pii_hash) — used to match business subjects
+    nin_hash: str | None = Field(default=None, index=True)
     # Bank Verification Number — collected at KYC (optional until verified)
     bvn: str | None = Field(default=None, index=True)
     # Phone number — collected post-signup (optional until verified)

@@ -144,6 +144,23 @@ Server-side liveness ([faceliveness](https://pypi.org/project/faceliveness/)) + 
 | GET | `/face` | Bearer | The user's own enrolled 112×112 face-record PNG |
 | DELETE | `/enrolment` | Bearer | Delete template + face, reset `identity_verified` |
 
+### Business platform (Open API)
+
+FOID for fintechs: hosted, FOID-branded verification (NIN / BVN / liveness), server-to-server checks,
+consent grants with revocation, signed webhooks, business dashboard API.
+
+| Prefix | Auth | Router |
+|---|---|---|
+| `/api/open/v1/*` | `Bearer sk_test_…` / `sk_live_…` | `routers/open_api.py` |
+| `/api/v1/hosted/sessions/{token}/*` | session token in the URL (no login) | `routers/hosted.py` |
+| `/api/v1/business/*` | FOID user JWT + org role | `routers/business.py` |
+| `/api/v1/connected-apps` | FOID user JWT | `routers/connected_apps.py` |
+| `/api/v1/admin/organisations` | admin | `routers/admin.py` (KYB → live mode) |
+
+Guides: [`docs/open-api.md`](../docs/open-api.md) (developers) ·
+[`docs/business-dashboard-design-brief.md`](../docs/business-dashboard-design-brief.md) (designer).
+Tests: `uv run pytest -q`.
+
 ### Credentials — `/api/v1/credentials/`
 
 | Method | Path | Description |

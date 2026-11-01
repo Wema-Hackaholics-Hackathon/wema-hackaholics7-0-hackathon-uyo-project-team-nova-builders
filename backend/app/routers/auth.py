@@ -24,6 +24,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession  # has .exec() unlike sqlalchemy's AsyncSession
 
 from app.config import get_db, get_settings
+from app.core.crypto import pii_hash
 from app.core.dependencies import get_current_user, require_verified_email
 from app.core.security import (
     create_access_token,
@@ -184,6 +185,7 @@ async def signup(
         last_name=body.last_name,
         middle_name=body.middle_name,
         nin=body.nin,
+        nin_hash=pii_hash(body.nin),
         email=body.email,
         hashed_password=hashed,
     )
@@ -881,6 +883,11 @@ async def verify_email(
     if cred is not None:
         cred.claims = {**cred.claims, "email_verified": True}  # type: ignore[assignment]
         db.add(cred)
+    await db.flush()
+
+    # Businesses may have verified this person before they joined FOID.
+    from app.services.subject_link_service import link_subjects_for_user
+    await link_subjects_for_user(db, user)
 
     await db.commit()
     return {"message": "Email verified successfully."}

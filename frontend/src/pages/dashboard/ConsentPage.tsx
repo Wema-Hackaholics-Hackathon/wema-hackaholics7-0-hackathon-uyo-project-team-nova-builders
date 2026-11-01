@@ -1,12 +1,16 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import RemixIcon from '@/components/RemixIcon'
 import StatCard from '@/components/StatCard'
 import SegmentedTabs from '@/components/SegmentedTabs'
+import { useAuth } from '@/contexts/AuthContext'
+import { api } from '@/lib/api'
+import type { ConnectedApp } from '@/types/foid'
 
 /* ── Types ──────────────────────────────────────────────────────────── */
 type ConsentStatus = 'pending' | 'approved' | 'revoked'
 
 interface Consent {
+  orgId?: string
   platform: string
   logo: string
   scope: string
@@ -15,7 +19,26 @@ interface Consent {
   status: ConsentStatus
 }
 
-/* ── Mock data ──────────────────────────────────────────────────────── */
+/* ── Real data: businesses with access (GET /connected-apps) ────────── */
+function fmtDate(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+}
+
+function toConsent(app: ConnectedApp): Consent {
+  const scope = app.scopes.map(s => s.scope.charAt(0).toUpperCase() + s.scope.slice(1)).join(' + ')
+    || app.checks.map(c => c.type.toUpperCase()).join(', ')
+  return {
+    orgId: app.org_id,
+    platform: app.sandbox ? `${app.name} (sandbox)` : app.name,
+    logo: app.logo_url ?? '/logo.png',
+    scope: (scope || 'Identity checks') + (app.verified_before_joining_foid ? ' · verified before you joined' : ''),
+    requested: fmtDate(app.first_connected_at),
+    expires: null,
+    status: app.status === 'active' ? 'approved' : 'revoked',
+  }
+}
+
+/* ── Mock data (shown until the email is verified, like other pages) ─ */
 const CONSENTS: Consent[] = [
   {
     platform: 'Wema Bank',
@@ -79,7 +102,7 @@ function StatusBadge({ status }: { status: ConsentStatus }) {
 }
 
 /* ── Action buttons ─────────────────────────────────────────────────── */
-function ActionButtons({ status }: { status: ConsentStatus }) {
+function ActionButtons({ status, onRevoke }: { status: ConsentStatus; onRevoke?: () => void }) {
   if (status === 'pending') {
     return (
       <div className="flex items-center gap-2">
@@ -97,7 +120,10 @@ function ActionButtons({ status }: { status: ConsentStatus }) {
   }
   if (status === 'approved') {
     return (
-      <button className="px-4 py-1.5 rounded-full border border-neutral-200 text-[12px] font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors whitespace-nowrap">
+      <button
+        onClick={onRevoke}
+        className="px-4 py-1.5 rounded-full border border-neutral-200 text-[12px] font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors whitespace-nowrap"
+      >
         Revoke access
       </button>
     )
@@ -123,8 +149,35 @@ const TABS: { key: Filter; label: string }[] = [
 export default function ConsentPage() {
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
+  const { user } = useAuth()
+  const isVerified = user?.email_verified ?? false
+  const [apps, setApps] = useState<Consent[]>([])
 
-  const visible = CONSENTS.filter(c => {
+  const load = useCallback(async () => {
+    try {
+      setApps((await api.get<ConnectedApp[]>('/connected-apps')).data.map(toConsent))
+    } catch {
+      setApps([])
+    }
+  }, [])
+
+  useEffect(() => { if (isVerified) void load() }, [isVerified, load])
+
+  async function revoke(consent: Consent) {
+    if (!consent.orgId) return
+    if (!window.confirm(`Revoke ${consent.platform}'s access? They will stop receiving any of your data.`)) return
+    try {
+      await api.delete(`/connected-apps/${consent.orgId}`)
+      await load()
+    } catch {
+      window.alert('Could not revoke access. Please try again.')
+    }
+  }
+
+  const consents = isVerified ? apps : CONSENTS
+  const count = (s: ConsentStatus) => consents.filter(c => c.status === s).length
+
+  const visible = consents.filter(c => {
     if (filter !== 'all' && c.status !== filter) return false
     if (search && !c.platform.toLowerCase().includes(search.toLowerCase())) return false
     return true
@@ -146,10 +199,10 @@ export default function ConsentPage() {
 
       {/* ── Stat cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Pending Requests"  value="2"  sub="Awaiting your approval"       subColor="text-neutral-400"             icon="ri-alert-fill"           />
-        <StatCard label="Approved"          value="14" sub="Banks, loans & merchants"      subColor="text-neutral-400"             icon="ri-checkbox-circle-fill" />
-        <StatCard label="Denied"            value="3"  sub="Access blocked"                subColor="text-neutral-400"             icon="ri-close-circle-fill"    />
-        <StatCard label="Active Agreements" value="11" sub="Covers ~52 more days"          subColor="text-neutral-400"             icon="ri-book-2-fill"          />
+        <StatCard label="Pending Requests"  value={String(count('pending'))}  sub="Awaiting your approval" subColor="text-neutral-400" icon="ri-alert-fill"           />
+        <StatCard label="Approved"          value={String(count('approved'))} sub="Banks, loans & merchants" subColor="text-neutral-400" icon="ri-checkbox-circle-fill" />
+        <StatCard label="Denied"            value={String(count('revoked'))}  sub="Access blocked"         subColor="text-neutral-400" icon="ri-close-circle-fill"    />
+        <StatCard label="Active Agreements" value={String(count('approved'))} sub="Businesses with access" subColor="text-neutral-400" icon="ri-book-2-fill"          />
       </div>
 
       {/* ── Table card ── */}
@@ -226,13 +279,13 @@ export default function ConsentPage() {
                 <td className="px-6 py-5"><StatusBadge status={consent.status} /></td>
 
                 {/* Actions */}
-                <td className="px-6 py-5"><ActionButtons status={consent.status} /></td>
+                <td className="px-6 py-5"><ActionButtons status={consent.status} onRevoke={() => void revoke(consent)} /></td>
               </tr>
             ))}
             {visible.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-6 py-12 text-center text-[13px] text-neutral-400">
-                  No consents match your filter.
+                  {consents.length === 0 ? 'No business has access to your FOID data yet.' : 'No consents match your filter.'}
                 </td>
               </tr>
             )}

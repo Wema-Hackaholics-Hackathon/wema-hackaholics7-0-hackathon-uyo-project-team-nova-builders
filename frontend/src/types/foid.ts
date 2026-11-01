@@ -154,3 +154,64 @@ export interface LivenessCompleteResult {
   face_quality: number | null
   message: string
 }
+
+/* ── Hosted business verification (/verify/:token) ──────────────────── */
+export interface HostedStep {
+  type: 'nin' | 'bvn' | 'liveness' | 'reverify'
+  status: 'pending' | 'passed' | 'failed' | 'needs_review' | 'error'
+  reasons: string[]
+  attempts_left: number
+  source: 'this_session' | 'foid_credential'
+}
+
+export interface HostedSession {
+  id: string
+  env: 'test' | 'live'
+  business: {
+    name: string
+    logo_url: string | null
+    brand_color: string | null
+    website: string | null
+    support_email: string | null
+  }
+  purpose: string
+  scopes: { scope: string; description: string }[]
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'expired'
+  outcome: 'passed' | 'failed' | 'needs_review' | null
+  consent_given: boolean
+  reused_foid_credential: boolean
+  steps: HostedStep[]
+  person: { first_name: string | null }
+  expires_at: string
+  redirect_url?: string | null
+}
+
+export interface HostedStepResult {
+  type: string
+  status: HostedStep['status']
+  reasons: string[]
+}
+
+/** A business with (or that had) access to the user's data — GET /connected-apps */
+export interface ConnectedApp {
+  org_id: string
+  sandbox: boolean
+  name: string
+  logo_url: string | null
+  website: string | null
+  status: 'active' | 'revoked'
+  scopes: { scope: string; description: string }[]
+  first_connected_at: string | null
+  verified_before_joining_foid: boolean
+  grants: {
+    id: string
+    scopes: string[]
+    purpose: string
+    source: 'hosted_flow' | 'business_attested'
+    status: 'active' | 'revoked'
+    granted_at: string | null
+    revoked_at: string | null
+    revoked_by: string | null
+  }[]
+  checks: { type: string; status: string; at: string | null }[]
+}

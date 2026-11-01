@@ -173,7 +173,7 @@ def _decode_jpeg(data: bytes) -> np.ndarray:
     frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
     if frame is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Frame is not a valid image",
         )
     h, w = frame.shape[:2]
