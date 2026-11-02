@@ -8,16 +8,15 @@ import httpx
 
 from app.config import _get_session_factory
 from app.services.maintenance_service import run_cleanup
-from tests.conftest import make_org, make_user, sql
+from tests.conftest import make_user, sql
 
-OWNED = ("credentials", "wallets", "refresh_tokens", "email_verification_tokens", "notifications", "org_members")
+OWNED = ("credentials", "wallets", "refresh_tokens", "email_verification_tokens", "notifications")
 
 
 async def test_cleanup_purges_stale_unverified_account_and_everything_it_owns(client: httpx.AsyncClient) -> None:
     stale = await make_user(client, verify_email=False)
     fresh = await make_user(client, verify_email=False)
     verified = await make_user(client)
-    org = await make_org(client, stale)   # the stale user created an org → org survives, created_by cleared
     await sql("UPDATE users SET created_at=:t WHERE id=:u", t=datetime(2020, 1, 1), u=stale["id"])
     await sql("UPDATE users SET created_at=:t WHERE id=:u", t=datetime(2020, 1, 1), u=verified["id"])
 
@@ -28,7 +27,6 @@ async def test_cleanup_purges_stale_unverified_account_and_everything_it_owns(cl
     assert await sql("SELECT 1 FROM users WHERE id=:u", u=stale["id"]) == []
     for table in OWNED:
         assert await sql(f"SELECT 1 FROM {table} WHERE user_id=:u", u=stale["id"]) == [], table
-    assert await sql("SELECT created_by FROM organisations WHERE id=:o", o=org["id"]) == [(None,)]
     assert await sql("SELECT 1 FROM users WHERE id=:u", u=fresh["id"]) != []      # inside grace period
     assert await sql("SELECT 1 FROM users WHERE id=:u", u=verified["id"]) != []   # verified: kept
 

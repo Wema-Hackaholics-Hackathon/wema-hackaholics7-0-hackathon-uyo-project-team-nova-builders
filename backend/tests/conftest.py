@@ -6,7 +6,9 @@ Run:  cd backend && uv run pytest -q
 
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
 import tempfile
 import types
 from collections.abc import AsyncIterator, Callable
@@ -14,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 _TMP = tempfile.mkdtemp(prefix="foid-tests-")
+atexit.register(shutil.rmtree, _TMP, ignore_errors=True)   # throwaway DB folder
 os.environ.update({
     # Set FOID_TEST_DATABASE_URL to run against Postgres, e.g.
     #   postgresql+asyncpg://postgres:test@localhost:55432/foid_test
@@ -22,6 +25,9 @@ os.environ.update({
     "RESEND_API_KEY": "",
     "GROQ_API_KEY": "",
     "SECRET_KEY": "test-secret",
+    # never reach the real Bachs from tests (backend/.env may hold a sandbox key)
+    "BACHS_API_KEY": "",
+    "BACHS_WEBHOOK_SECRET": "",
 })
 
 import faceliveness  # noqa: E402
@@ -114,6 +120,22 @@ async def make_user(client: httpx.AsyncClient, *, nin: str | None = None, email:
     if verify_email:
         await set_claim(me["id"], "email_verified", True)
     return {"id": me["id"], "email": email, "nin": nin, "headers": headers}
+
+
+async def make_member(client: httpx.AsyncClient, *, email: str | None = None, verify_email: bool = True,
+                      company: str | None = None) -> dict[str, Any]:
+    """A business console account (separate from FOID users). Signup also creates its first org."""
+    n = next(_counter)
+    email = email or f"member{n}@biz.example"
+    r = await client.post("/api/v1/console/auth/signup", json=dict(
+        first_name="Tunde", last_name="Okafor", email=email, password="Passw0rd!x", company_name=company or f"Biz {n}"))
+    assert r.status_code == 201, r.text
+    tokens = r.json()
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    me = (await client.get("/api/v1/console/auth/me", headers=headers)).json()
+    if verify_email:
+        await sql("UPDATE console_users SET email_verified_at=created_at WHERE id=:i", i=me["id"])
+    return {"id": me["id"], "email": email, "headers": headers, "refresh_token": tokens["refresh_token"]}
 
 
 async def make_org(client: httpx.AsyncClient, owner: dict[str, Any], *, live: bool = False) -> dict[str, Any]:

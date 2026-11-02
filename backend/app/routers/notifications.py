@@ -19,13 +19,13 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 async def list_notifications(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    limit: int | None = None,
 ) -> list[NotificationOut]:
-    """Return all notifications for the current user, newest first."""
-    result = await db.exec(
-        select(Notification)
-        .where(Notification.user_id == current_user.id)
-        .order_by(col(Notification.timestamp).desc())
-    )
+    """Notifications for the current user, newest first (all, or the latest `limit` for the bell)."""
+    q = select(Notification).where(Notification.user_id == current_user.id).order_by(col(Notification.timestamp).desc())
+    if limit:
+        q = q.limit(min(limit, 100))
+    result = await db.exec(q)
     rows = result.all()
     return [NotificationOut.model_validate(n) for n in rows]
 

@@ -57,7 +57,10 @@ export interface User {
   last_name: string
   middle_name?: string | null
   nin: string
+  /** masked, e.g. "*******1234" — the full BVN never leaves the server */
   bvn?: string | null
+  /** When the BVN matched the registry under the verified name */
+  bvn_verified_at?: string | null
   phone?: string | null
   address?: string | null
   /** Authenticated URL of the enrolled face record (null until enrolled) */

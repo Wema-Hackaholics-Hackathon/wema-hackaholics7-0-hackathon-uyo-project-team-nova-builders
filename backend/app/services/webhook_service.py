@@ -95,6 +95,10 @@ async def enqueue_event(
 ) -> str:
     """Queue an event for every enabled endpoint of the org/env that subscribes to it."""
     event = build_event(event_type, env, data)
+    from app.models import Organisation
+    org = await db.get(Organisation, org_id)
+    if org is None or org.status != "active":     # deactivated businesses get nothing
+        return event["id"]
     endpoints = (await db.exec(
         select(WebhookEndpoint).where(
             WebhookEndpoint.org_id == org_id,
@@ -174,6 +178,10 @@ async def attempt(db: AsyncSession, d: WebhookDelivery, client: httpx.AsyncClien
             d.status, d.delivered_at = "delivered", utcnow()
         elif d.attempts >= len(_BACKOFF_SECS):
             d.status = "failed"
+            from app.services.console_inbox import notify
+            await notify(db, d.org_id, "webhook_failing", "Webhook endpoint is failing",
+                         f"{d.event_type} to {ep.url} failed after {d.attempts} tries ({code or err}).",
+                         link="/api-keys", min_role="developer", ref=ep.id, once_per=timedelta(days=1))
         else:
             d.next_attempt_at = utcnow() + timedelta(seconds=_BACKOFF_SECS[d.attempts - 1])
     db.add(d)

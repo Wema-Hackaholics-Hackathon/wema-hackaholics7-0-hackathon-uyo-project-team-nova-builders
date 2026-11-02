@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     SFACE_MODEL_PATH: str = "app/data/models/face_recognition_sface_2021dec.onnx"
 
     # Business platform (Open API)
+    CONSOLE_URL: str = "http://localhost:5174"      # business console — Bachs returns here after checkout
     PUBLIC_APP_URL: str = "http://localhost:5173"   # base for hosted verification links
     IDENTITY_PROVIDER: Literal["mock"] = "mock"     # NIN/BVN lookups; real adapters plug in here
     DATA_ENCRYPTION_KEY: str = ""       # Fernet key for secrets at rest; derived from SECRET_KEY in dev
@@ -60,7 +61,7 @@ class Settings(BaseSettings):
     VERIFICATION_TTL_HOURS: int = 24    # hosted verification link lifetime
 
     # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:5173"
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:5174"   # user app, business console
 
     # Redis (optional — cache is disabled gracefully if not set)
     REDIS_URL: str = ""

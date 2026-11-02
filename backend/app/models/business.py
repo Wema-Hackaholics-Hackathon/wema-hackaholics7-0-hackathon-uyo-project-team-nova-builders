@@ -1,7 +1,7 @@
 """Business platform models — organisations using the FOID Open API.
 
-Organisation ── members (FOID users with a role)
-             ── api_keys (sk_test_/sk_live_, stored hashed)
+Organisation ── members (console accounts with a role — see models/console.py)
+             ── api_keys (FOID_TEST_/FOID_LIVE_, stored hashed, shown once)
              ── webhook_endpoints ── webhook_deliveries
              ── subjects (the business's customers; may or may not be FOID users)
                    ── consent_grants (what the subject allowed this business to see)
@@ -59,21 +59,106 @@ class Organisation(SQLModel, table=True):
     brand_color: str | None = Field(default=None)
     # KYB — live keys only once FOID approves the business
     rc_number: str | None = Field(default=None)
+    tin: str | None = Field(default=None)
+    registered_address: str | None = Field(default=None)
     kyb_status: str = Field(default="not_submitted")   # not_submitted | pending | approved | rejected
+    kyb_submitted_at: datetime | None = Field(default=None)
+    kyb_reviewed_at: datetime | None = Field(default=None)
+    kyb_note: str | None = Field(default=None)          # reviewer's reason, shown to the business on rejection
     live_enabled: bool = Field(default=False)
+    # Billing (services/billing_service.py). Starter is free and has no paid period.
+    plan_code: str = Field(default="starter")
+    plan_period_start: datetime | None = Field(default=None)
+    plan_period_end: datetime | None = Field(default=None)
+    # Security settings (Settings → Security)
+    require_2fa: bool = Field(default=False)           # members need two-step sign-in to open this business
+    alert_on_key_create: bool = Field(default=True)    # email owners/admins when an API key is created
+    ip_allowlist: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))  # live keys only; IPs or CIDRs
     status: str = Field(default="active")              # active | suspended
-    created_by: str = Field(sa_column=Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True))
+    deactivated_at: datetime | None = Field(default=None)   # suspended by the owner; deleted 30 days later
+    created_by: str | None = Field(default=None, sa_column=Column(String, ForeignKey("console_users.id", ondelete="SET NULL"), nullable=True))
     created_at: datetime = Field(default_factory=_now)
 
 
 class OrgMember(SQLModel, table=True):
     __tablename__: ClassVar[str] = "org_members"  # pyright: ignore[reportIncompatibleVariableOverride]
-    __table_args__ = (UniqueConstraint("org_id", "user_id"),)
+    __table_args__ = (UniqueConstraint("org_id", "console_user_id"),)
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     org_id: str = _org_fk()
-    user_id: str = Field(sa_column=Column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False))
+    console_user_id: str = Field(sa_column=Column(String, ForeignKey("console_users.id", ondelete="CASCADE"), index=True, nullable=False))
     role: str = Field(default="viewer")   # owner | admin | developer | reviewer | viewer
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ApiRequestLog(SQLModel, table=True):
+    """One row per Open API call that could be tied to an organisation's key. No bodies, no
+    query strings, no personal data — method, path, status and timing only. Kept 30 days."""
+    __tablename__: ClassVar[str] = "api_request_logs"  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    org_id: str = _org_fk()
+    env: str = Field(index=True)
+    key_id: str | None = Field(default=None, index=True)
+    key_hint: str | None = Field(default=None)   # FOID_TEST_28…29, copied so revoked keys still read well
+    request_id: str = Field(unique=True, index=True)
+    method: str
+    path: str                     # e.g. /v1/verifications/9f2a…
+    status: int = Field(index=True)
+    latency_ms: int
+    created_at: datetime = Field(default_factory=_now, index=True)
+
+
+class Invoice(SQLModel, table=True):
+    """One bill for one business. Paid only when Bachs's signed webhook confirms it."""
+    __tablename__: ClassVar[str] = "invoices"  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    org_id: str = _org_fk()
+    number: str = Field(unique=True, index=True)         # INV-2026-0001
+    kind: str                                            # plan_change | renewal
+    plan_code: str
+    period_start: datetime
+    period_end: datetime
+    amount_kobo: int
+    status: str = Field(default="open", index=True)      # open | paid | void
+    bachs_reference: str | None = Field(default=None, unique=True, index=True)   # latest checkout attempt (inv_…)
+    checkout_url: str | None = Field(default=None)
+    paid_at: datetime | None = Field(default=None)
+    created_by: str | None = Field(default=None)         # console_users.id
+    created_at: datetime = Field(default_factory=_now)
+
+
+class KybDocument(SQLModel, table=True):
+    """A business document for the go-live review. Encrypted at rest; only FOID admins can download it."""
+    __tablename__: ClassVar[str] = "kyb_documents"  # pyright: ignore[reportIncompatibleVariableOverride]
+    __table_args__ = (UniqueConstraint("org_id", "type"),)   # one current file per document type
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    org_id: str = _org_fk()
+    type: str                     # see services/kyb_service.DOC_TYPES
+    filename: str
+    mime: str                     # detected from the file's bytes, not the upload header
+    size: int
+    sha256: str                   # of the original bytes
+    data_enc: bytes = Field(sa_column=Column(LargeBinary, nullable=False))   # Fernet(DATA_ENCRYPTION_KEY)
+    uploaded_by: str | None = Field(default=None)   # console_users.id
+    created_at: datetime = Field(default_factory=_now)
+
+
+class OrgInvite(SQLModel, table=True):
+    """Invitation to join a business. Only a SHA-256 of the emailed token is kept."""
+    __tablename__: ClassVar[str] = "org_invites"  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    org_id: str = _org_fk()
+    email: str = Field(index=True)                 # lower-cased
+    role: str
+    token_hash: str = Field(unique=True, index=True)
+    invited_by: str | None = Field(default=None)   # console_users.id
+    expires_at: datetime
+    accepted_at: datetime | None = Field(default=None)
+    revoked_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -84,9 +169,9 @@ class ApiKey(SQLModel, table=True):
     org_id: str = _org_fk()
     env: str                      # test | live
     name: str = Field(default="Default key")
-    prefix: str                   # first characters, shown in the dashboard (sk_test_AbC…)
+    prefix: str                   # display hint only, e.g. FOID_LIVE_28…29 — the raw key is never stored
     key_hash: str = Field(unique=True, index=True)
-    created_by: str | None = Field(default=None)
+    created_by: str | None = Field(default=None)   # console_users.id
     last_used_at: datetime | None = Field(default=None)
     revoked_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=_now)

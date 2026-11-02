@@ -114,3 +114,46 @@ async def test_nin_verification_attempt_limit(client: httpx.AsyncClient) -> None
         assert (await client.post(VERIFY, headers=user["headers"], json=body)).status_code == 422
     r = await client.post(VERIFY, headers=user["headers"], json=body)
     assert r.status_code == 429
+
+
+# ── BVN: verified against the registry, stored encrypted, never returned in full ──
+
+BVN = "/api/v1/auth/me/bvn"
+
+
+async def _nin_verified(client: httpx.AsyncClient, nin: str) -> dict:  # type: ignore[type-arg]
+    user = await make_user(client, nin=nin)
+    await _passed_liveness(user)
+    r = await client.post(VERIFY, headers=user["headers"], json={"first_name": "Ada", "last_name": "Obi", "date_of_birth": DOB})
+    assert r.status_code == 200, r.text
+    return user
+
+
+async def test_bvn_needs_verified_nin_and_a_registry_match(client: httpx.AsyncClient) -> None:
+    fresh = await make_user(client, nin="81234567893")
+    r = await client.patch(BVN, headers=fresh["headers"], json={"bvn": "22345678901"})
+    assert r.status_code == 409 and "Verify your NIN first" in r.json()["detail"]
+
+    user = await _nin_verified(client, "81234567894")
+    for bvn, expected in (("22345678909", "couldn't find a record"), ("22345678908", "doesn't match")):
+        r = await client.patch(BVN, headers=user["headers"], json={"bvn": bvn})
+        assert r.status_code == 422 and expected in r.json()["detail"], r.text
+    row = (await sql("SELECT bvn_enc, bvn_last4, bvn_verified_at FROM users WHERE id=:u", u=user["id"]))[0]
+    assert row == (None, None, None)                                     # nothing kept for a failed BVN
+    claims = (await client.get("/api/v1/credentials/me", headers=user["headers"])).json()["claims"]
+    assert claims["bvn_validated"] is False
+
+    r = await client.patch(BVN, headers=user["headers"], json={"bvn": "22345678901"})
+    assert r.status_code == 200, r.text
+    me = r.json()
+    assert me["bvn"] == "*******8901" and me["bvn_verified_at"]
+    assert "22345678901" not in r.text and "22345678901" not in (await client.get("/api/v1/auth/me", headers=user["headers"])).text
+    row = (await sql("SELECT bvn_enc, bvn_last4 FROM users WHERE id=:u", u=user["id"]))[0]
+    assert row[0].startswith("gAAAA") and "22345678901" not in str(row) and row[1] == "8901"
+    claims = (await client.get("/api/v1/credentials/me", headers=user["headers"])).json()["claims"]
+    assert claims["bvn_validated"] is True
+    assert (await client.patch(BVN, headers=user["headers"], json={"bvn": "22345678902"})).status_code == 409
+
+    other = await _nin_verified(client, "81234567895")
+    r = await client.patch(BVN, headers=other["headers"], json={"bvn": "22345678901"})
+    assert r.status_code == 422 and "another FOID account" in r.json()["detail"]

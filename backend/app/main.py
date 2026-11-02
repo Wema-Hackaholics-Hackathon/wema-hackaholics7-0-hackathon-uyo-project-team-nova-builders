@@ -100,7 +100,11 @@ async def _enable_wal_mode() -> None:
 async def lifespan(_app: FastAPI):
     engine = _get_engine()
     was_empty = not await has_table(engine, "users")
-    await init_db()
+    if was_empty:
+        # Brand-new database: create every table at the current schema (then stamped at head).
+        # An existing database is left to Alembic — creating new tables here would make the
+        # next `alembic upgrade head` fail with "table already exists".
+        await init_db()
     await _enable_wal_mode()
     schema = await check_schema(engine, was_empty=was_empty)
     _app.state.schema_error = schema.message
@@ -149,12 +153,18 @@ async def schema_guard(request: Request, call_next):  # pyright: ignore[reportUn
     return await call_next(request)
 
 
+# Open API calls: FOID-Request-Id header + request log for the business console
+from .services import request_log_service  # noqa: E402
+
+app.middleware("http")(request_log_service.middleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS.split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition", "FOID-Request-Id"],   # CSV filenames, request IDs
 )
 
 
@@ -182,7 +192,13 @@ v1_router.include_router(admin_router)
 v1_router.include_router(auth_router)
 v1_router.include_router(banks_router)
 v1_router.include_router(business_router)
+v1_router.include_router(kyb_router)
+v1_router.include_router(console_data_router)
+v1_router.include_router(billing_router)
+v1_router.include_router(org_admin_router)
+v1_router.include_router(invites_public_router)
 v1_router.include_router(connected_apps_router)
+v1_router.include_router(console_auth_router)
 v1_router.include_router(hosted_router)
 v1_router.include_router(consents_router)
 v1_router.include_router(credentials_router)

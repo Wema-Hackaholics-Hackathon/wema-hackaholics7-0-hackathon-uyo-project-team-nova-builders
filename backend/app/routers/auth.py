@@ -368,6 +368,7 @@ async def me(
         middle_name=user.middle_name,
         nin=user.nin,
         bvn=user.bvn,
+        bvn_verified_at=user.bvn_verified_at,
         phone=user.phone,
         address=user.address,
         proof_of_address_url=user.proof_of_address_url,
@@ -392,6 +393,14 @@ _NIN_REASON_TEXT = {
     "name_mismatch": "The name on your account doesn't match your NIN record. Enter it exactly as on your NIN slip.",
     "dob_mismatch": "The date of birth doesn't match your NIN record.",
     "no_nin_on_account": "There is no NIN on your account.",
+}
+
+
+_BVN_REASON_TEXT = {
+    "not_found": "We couldn't find a record for that BVN. Check the number (dial *565*0# to see yours).",
+    "name_mismatch": "The name on that BVN doesn't match your verified name.",
+    "dob_mismatch": "The date of birth on that BVN doesn't match your verified NIN.",
+    "bvn_taken": "This BVN is already verified on another FOID account. Contact support.",
 }
 
 
@@ -445,27 +454,34 @@ async def verify_my_nin(
 # ---------------------------------------------------------------------------
 
 @router.patch("/me/bvn", response_model=UserOut)
+@limiter.limit("5/hour")  # pyright: ignore[reportUnknownMemberType, reportUntypedFunctionDecorator]
 async def submit_bvn(
+    request: Request,  # pyright: ignore[reportUnusedParameter] — slowapi requires this name
     body: BvnRequest,
     current_user: Annotated[User, Depends(require_verified_email)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> User:
-    """Store the user's BVN (mocked verification) and mark bvn_validated=True."""
-    current_user.bvn = body.bvn
-    db.add(current_user)
+) -> UserOut:
+    """Verify the BVN against the registry with the user's NIN-verified name; store it encrypted on a match.
 
-    # Flip bvn_validated on the credential
-    cred_result = await db.exec(
-        select(Credential).where(Credential.user_id == current_user.id)
-    )
-    cred = cred_result.first()
-    if cred is not None:
-        cred.claims = {**cred.claims, "bvn_validated": True}  # type: ignore[assignment]
-        db.add(cred)
-
+    Nothing is stored for a BVN that doesn't match, and bvn_validated only flips on a real match.
+    """
+    if current_user.bvn_verified_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Your BVN is already verified")
+    if not current_user.identity_locked:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Verify your NIN first — your BVN is checked against your verified name")
+    if await user_identity.bvn_attempts_today(db, current_user) >= user_identity.MAX_ATTEMPTS_PER_DAY:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many BVN verification attempts today. Try again tomorrow.")
+    try:
+        result = await user_identity.verify_bvn(db, current_user, body.bvn)
+    except ProviderUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "BVN verification is temporarily unavailable. Please try again later.") from exc
     await db.commit()
+    if not result.verified:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            " ".join(_BVN_REASON_TEXT.get(r, r) for r in result.reasons))
     await db.refresh(current_user)
-    return current_user
+    return await me(current_user, db)
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +537,7 @@ async def identity_summary(
     claims: dict[str, object] = dict(cred.claims) if cred else {}
 
     nin_masked   = ("****" + current_user.nin_last4) if current_user.nin_last4 else "****"
-    bvn_masked   = ("****" + (current_user.bvn or "")[-4:]) if current_user.bvn else "Not submitted"
+    bvn_masked   = ("****" + current_user.bvn_last4) if current_user.bvn_last4 else "Not submitted"
     phone_masked = (current_user.phone[:4] + "****" + current_user.phone[-2:]) if current_user.phone else "Not submitted"
 
     # ── Build PDF ─────────────────────────────────────────────────────

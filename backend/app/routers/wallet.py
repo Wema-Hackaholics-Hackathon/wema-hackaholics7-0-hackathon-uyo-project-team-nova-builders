@@ -236,6 +236,11 @@ async def bachs_webhook(
     if not reference:
         return {"status": "no_reference"}
 
+    # Business console invoices share this webhook (one URL in the Bachs dashboard)
+    if reference.startswith("inv_"):
+        from ..services.billing_service import confirm_payment
+        return {"status": await confirm_payment(db, reference, data)}
+
     # Find the matching pending WalletTransaction (idempotency: skip if already paid)
     tx_result = await db.exec(
         select(WalletTransaction).where(

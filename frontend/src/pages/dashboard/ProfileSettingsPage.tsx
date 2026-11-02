@@ -391,8 +391,8 @@ export default function ProfileSettingsPage() {
         <div className="bg-white rounded-2xl border border-neutral-100 p-6 shadow-sm">
           <h2 className="text-[15px] font-bold text-neutral-900 mb-4">Linked identity documents</h2>
           <div className="divide-y divide-neutral-100">
-            <DocRow icon="ri-bank-fill"              name="BVN"                    sub={user?.bvn ? 'Linked and Verified' : 'Not yet submitted'}  status={user?.bvn ? 'verified' : 'not-linked'} />
-            <DocRow icon="ri-profile-fill"           name="NIN"                    sub="Linked and Verified"  status="verified"   />
+            <DocRow icon="ri-bank-fill"              name="BVN"                    sub={user?.bvn_verified_at ? `Verified · ${user.bvn}` : 'Not yet verified'}  status={user?.bvn_verified_at ? 'verified' : 'not-linked'} />
+            <DocRow icon="ri-profile-fill"           name="NIN"                    sub={user?.nin_verified_at ? `Verified · ${user.nin}` : 'Not yet verified'}  status={user?.nin_verified_at ? 'verified' : 'not-linked'} />
             <DocRow
               icon="ri-user-smile-fill"
               name="Face (liveness)"

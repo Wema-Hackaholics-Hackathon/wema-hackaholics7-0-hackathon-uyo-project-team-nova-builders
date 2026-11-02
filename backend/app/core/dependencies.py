@@ -23,8 +23,10 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession  # has .exec() unlike sqlalchemy's AsyncSession
 
 from app.config import get_db
-from app.core.security import decode_access_token
-from app.models import Credential, User
+from datetime import datetime, timedelta, timezone
+
+from app.core.security import decode_access_token, decode_console_access_token
+from app.models import ConsoleUser, Credential, User
 
 _bearer = HTTPBearer(auto_error=True)
 
@@ -75,3 +77,45 @@ async def require_verified_email(
             detail="Email address not verified. Please verify your email to continue.",
         )
     return user
+
+
+# ---------------------------------------------------------------------------
+# Business console (enterprise/) — console accounts, not FOID users
+# ---------------------------------------------------------------------------
+
+_ACTIVE_EVERY = timedelta(minutes=5)   # don't write last_active_at on every request
+
+
+async def get_console_user(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ConsoleUser:
+    """Console access token → ConsoleUser. 401 for user-app tokens, expired or unknown ones."""
+    unauthorized = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired console session",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        console_user_id = decode_console_access_token(credentials.credentials)
+    except JWTError:
+        raise unauthorized
+    member = await db.get(ConsoleUser, console_user_id)
+    if member is None:
+        raise unauthorized
+    now = datetime.now(timezone.utc)
+    if member.last_active_at is None or now - member.last_active_at > _ACTIVE_EVERY:
+        member.last_active_at = now
+        db.add(member)
+        await db.commit()
+        await db.refresh(member)
+    return member
+
+
+async def require_verified_console_user(
+    member: Annotated[ConsoleUser, Depends(get_console_user)],
+) -> ConsoleUser:
+    """Every organisation route needs a verified console email."""
+    if member.email_verified_at is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Verify your console email address to continue.")
+    return member

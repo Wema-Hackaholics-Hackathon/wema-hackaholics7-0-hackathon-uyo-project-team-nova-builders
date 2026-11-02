@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -202,7 +202,7 @@ async def update_verifications(
 
 class KybDecision(BaseModel):
     approve: bool
-    note: str | None = None
+    note: str | None = None   # required when rejecting — shown to the business
 
 
 @router.get("/organisations")
@@ -212,6 +212,7 @@ async def admin_list_organisations(
     kyb_status: str | None = None,
 ) -> list[dict[str, object]]:
     from ..models import Organisation
+    from ..services.checks_service import iso
 
     q = select(Organisation)
     if kyb_status:
@@ -219,9 +220,51 @@ async def admin_list_organisations(
     rows = (await db.exec(q)).all()
     return [
         {"id": o.id, "name": o.name, "rc_number": o.rc_number, "kyb_status": o.kyb_status,
-         "live_enabled": o.live_enabled, "status": o.status, "website": o.website}
+         "kyb_submitted_at": iso(o.kyb_submitted_at), "live_enabled": o.live_enabled, "status": o.status,
+         "website": o.website}
         for o in rows
     ]
+
+
+@router.get("/organisations/{org_id}/kyb")
+async def admin_get_kyb(
+    org_id: str,
+    _admin: Annotated[User, Depends(get_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, object]:
+    from ..models import KybDocument, Organisation
+    from ..services import kyb_service
+
+    org = await db.get(Organisation, org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    docs = list((await db.exec(select(KybDocument).where(KybDocument.org_id == org_id))).all())
+    return {"id": org.id, "name": org.name, **kyb_service.view(org, docs), "note": org.kyb_note}
+
+
+@router.get("/organisations/{org_id}/kyb/documents/{doc_id}")
+async def admin_download_kyb_document(
+    org_id: str,
+    doc_id: str,
+    admin: Annotated[User, Depends(get_admin_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Decrypted file, as a download. Every download is written to the audit log."""
+    from ..core.crypto import decrypt_bytes
+    from ..models import AuditLog, KybDocument
+
+    doc = await db.get(KybDocument, doc_id)
+    if doc is None or doc.org_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    db.add(AuditLog(org_id=org_id, actor_type="user", actor_id=admin.id, action="kyb.document_downloaded",
+                    target_type="kyb_document", target_id=doc.id, meta={"type": doc.type}))
+    await db.commit()
+    return Response(
+        content=decrypt_bytes(doc.data_enc),
+        media_type=doc.mime,
+        headers={"Content-Disposition": f'attachment; filename="{doc.filename}"',
+                 "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+    )
 
 
 @router.post("/organisations/{org_id}/kyb")
@@ -231,15 +274,33 @@ async def admin_decide_kyb(
     admin: Annotated[User, Depends(get_admin_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, object]:
+    from datetime import datetime, timezone
+
     from ..models import AuditLog, Organisation
+    from ..services import kyb_service
 
     org = await db.get(Organisation, org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    if org.kyb_status != "pending":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Nothing to review — status is {org.kyb_status}")
+    note = (body.note or "").strip() or None
+    if not body.approve and not note:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            detail="Say what the business must fix (note) when rejecting")
     org.kyb_status = "approved" if body.approve else "rejected"
     org.live_enabled = body.approve
+    org.kyb_reviewed_at = datetime.now(timezone.utc)
+    org.kyb_note = note
     db.add(org)
     db.add(AuditLog(org_id=org.id, actor_type="user", actor_id=admin.id,
-                    action="kyb.approved" if body.approve else "kyb.rejected", meta={"note": body.note}))
+                    action="kyb.approved" if body.approve else "kyb.rejected", meta={"note": note}))
+    from ..services.console_inbox import notify
+    if body.approve:
+        await notify(db, org.id, "kyb_approved", "Approved for Live", "Switch to Live and create a live key.",
+                     link="/go-live", min_role="admin")
+    else:
+        await notify(db, org.id, "kyb_rejected", "Go-live review: changes needed", note or "", link="/go-live", min_role="admin")
     await db.commit()
+    await kyb_service.notify_owners(db, org)
     return {"id": org.id, "kyb_status": org.kyb_status, "live_enabled": org.live_enabled}

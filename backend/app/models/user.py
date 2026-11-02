@@ -42,8 +42,12 @@ class User(SQLModel, table=True):
     # Set when the NIN was checked against the registry and name + DOB matched.
     # From then on first/middle/last name and date of birth are locked.
     nin_verified_at: datetime | None = Field(default=None)
-    # Bank Verification Number — collected at KYC (optional until verified)
-    bvn: str | None = Field(default=None, index=True)
+    # Bank Verification Number — stored ENCRYPTED, like the NIN. Set only via
+    # app.services.user_identity.verify_bvn(); kept only once it matched the registry.
+    bvn_enc: str | None = Field(default=None)              # Fernet ciphertext (DATA_ENCRYPTION_KEY)
+    bvn_last4: str | None = Field(default=None)            # for display ("*******1234")
+    bvn_hash: str | None = Field(default=None, index=True)  # keyed hash (pii_hash) — matching without decrypting
+    bvn_verified_at: datetime | None = Field(default=None)
     # Phone number — collected post-signup (optional until verified)
     phone: str | None = Field(default=None)
     # Residential address — editable by the user
@@ -68,6 +72,11 @@ class User(SQLModel, table=True):
     def nin(self) -> str:
         """Masked NIN for display/API output — the full number is never exposed."""
         return f"*******{self.nin_last4}" if self.nin_last4 else ""
+
+    @property
+    def bvn(self) -> str:
+        """Masked BVN for display/API output — the full number is never exposed."""
+        return f"*******{self.bvn_last4}" if self.bvn_last4 else ""
 
     @property
     def identity_locked(self) -> bool:

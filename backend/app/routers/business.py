@@ -1,8 +1,8 @@
-"""Business dashboard API — /api/v1/business/* (FOID user JWT + org membership).
+"""Business dashboard API — /api/v1/business/* (console account JWT + org membership).
 
 Backs the business dashboard (designed separately): organisation profile &
 branding, team, API keys, webhooks + delivery log, verifications, subjects,
-usage and audit log. A FOID user can belong to several organisations; every
+usage and audit log. A console account (models/console.py — not a FOID user account) can belong to several organisations; every
 route is scoped by {org_id} and checked against the caller's role.
 
 Roles: owner > admin > developer > reviewer > viewer
@@ -20,28 +20,31 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.config import get_db
 from app.core.api_auth import generate_api_key
 from app.core.api_errors import ApiError
 from app.core.crypto import encrypt_str, new_token
-from app.core.dependencies import get_current_user
+from app.core.dependencies import require_verified_console_user
 from app.models import (
     ApiKey,
     AuditLog,
     CheckResult,
+    ConsoleUser,
     Organisation,
     OrgMember,
     Subject,
     UsageEvent,
-    User,
     Verification,
     WebhookDelivery,
     WebhookEndpoint,
 )
 from app.services import checks_service as cs
+from app.services import console_inbox, console_notify
+from app.services import console_views as cv
+from app.services.billing_service import PLANS
 from app.services import consent_service as consent
 from app.services import webhook_service as wh
 from app.services.webhook_service import EVENT_TYPES, attempt, build_event
@@ -49,17 +52,26 @@ from app.services.webhook_service import EVENT_TYPES, attempt, build_event
 router = APIRouter(prefix="/business", tags=["business-dashboard"])
 
 Db = Annotated[AsyncSession, Depends(get_db)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentUser = Annotated[ConsoleUser, Depends(require_verified_console_user)]
 Env = Literal["test", "live"]
 
+MAX_UNAPPROVED_ORGS = 5   # businesses one account may own before any is approved for Live (anti-spam)
 _RANK = {"viewer": 0, "reviewer": 1, "developer": 2, "admin": 3, "owner": 4}
 ROLES = list(_RANK)
 
 
-async def _member(db: AsyncSession, org_id: str, user: User, min_role: str = "viewer") -> OrgMember:
-    m = (await db.exec(select(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == user.id))).first()
+async def _member(db: AsyncSession, org_id: str, user: ConsoleUser, min_role: str = "viewer",
+                  allow_deactivated: bool = False) -> OrgMember:
+    """Membership + role check for every org route. Also enforces the org's 2FA rule and deactivation."""
+    m = (await db.exec(select(OrgMember).where(OrgMember.org_id == org_id, OrgMember.console_user_id == user.id))).first()
     if m is None:
         raise ApiError(404, "organisation_not_found", "No such organisation")
+    org = await db.get(Organisation, org_id)
+    assert org is not None
+    if org.require_2fa and user.totp_enabled_at is None:
+        raise ApiError(403, "two_factor_required", f"{org.name} requires two-step sign-in — turn it on in My account")
+    if org.status != "active" and not allow_deactivated:
+        raise ApiError(423, "organisation_deactivated", f"{org.name} is deactivated — an owner can reactivate it in Settings")
     if _RANK[m.role] < _RANK[min_role]:
         raise ApiError(403, "insufficient_role", f"Requires the {min_role} role or higher")
     return m
@@ -70,6 +82,8 @@ def _org_out(org: Organisation, role: str | None = None) -> dict[str, Any]:
         "id": org.id, "name": org.name, "website": org.website, "support_email": org.support_email,
         "logo_url": org.logo_url, "brand_color": org.brand_color, "rc_number": org.rc_number,
         "kyb_status": org.kyb_status, "live_enabled": org.live_enabled, "status": org.status,
+        "plan_code": org.plan_code, "plan": PLANS[org.plan_code]["name"],
+        "require_2fa": org.require_2fa, "deactivated_at": cs.iso(org.deactivated_at),
         "created_at": cs.iso(org.created_at), "role": role,
     }
 
@@ -92,18 +106,26 @@ class OrgUpdate(BaseModel):
     brand_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
 
 
-class KybSubmit(BaseModel):
-    rc_number: str = Field(min_length=3, max_length=20, description="CAC registration number")
+async def new_organisation(db: AsyncSession, owner: ConsoleUser, name: str,
+                           website: str | None = None, support_email: str | None = None) -> Organisation:
+    """Organisation + owner membership + audit entry. Caller commits. Also used by console signup."""
+    org = Organisation(name=name, website=website, support_email=support_email, created_by=owner.id)
+    db.add(org)
+    await db.flush()
+    db.add(OrgMember(org_id=org.id, console_user_id=owner.id, role="owner"))
+    cs.audit(db, org_id=org.id, actor_type="member", actor_id=owner.id, action="organisation.created")
+    return org
 
 
 @router.post("/organisations", status_code=201)
 async def create_org(body: OrgCreate, user: CurrentUser, db: Db) -> dict[str, Any]:
-    org = Organisation(name=body.name, website=str(body.website) if body.website else None,
-                       support_email=str(body.support_email) if body.support_email else None, created_by=user.id)
-    db.add(org)
-    await db.flush()
-    db.add(OrgMember(org_id=org.id, user_id=user.id, role="owner"))
-    cs.audit(db, org_id=org.id, actor_type="user", actor_id=user.id, action="organisation.created")
+    """Another business under the same console account (each has its own KYB, keys, users and billing)."""
+    owned = (await db.exec(select(Organisation).join(OrgMember, col(OrgMember.org_id) == Organisation.id)
+                           .where(OrgMember.console_user_id == user.id, OrgMember.role == "owner"))).all()
+    if len(owned) >= MAX_UNAPPROVED_ORGS and not any(o.kyb_status == "approved" for o in owned):
+        raise ApiError(403, "organisation_limit", f"You can own {MAX_UNAPPROVED_ORGS} businesses until one is approved for Live")
+    org = await new_organisation(db, user, body.name, str(body.website) if body.website else None,
+                                 str(body.support_email) if body.support_email else None)
     await db.commit()
     return _org_out(org, "owner")
 
@@ -111,13 +133,13 @@ async def create_org(body: OrgCreate, user: CurrentUser, db: Db) -> dict[str, An
 @router.get("/organisations")
 async def my_orgs(user: CurrentUser, db: Db) -> list[dict[str, Any]]:
     rows = (await db.exec(select(Organisation, OrgMember.role).join(OrgMember, OrgMember.org_id == Organisation.id)  # pyright: ignore[reportArgumentType]
-                          .where(OrgMember.user_id == user.id))).all()
+                          .where(OrgMember.console_user_id == user.id))).all()
     return [_org_out(o, role) for o, role in rows]
 
 
 @router.get("/organisations/{org_id}")
 async def get_org(org_id: str, user: CurrentUser, db: Db) -> dict[str, Any]:
-    m = await _member(db, org_id, user)
+    m = await _member(db, org_id, user, allow_deactivated=True)
     org = await db.get(Organisation, org_id)
     assert org is not None
     return _org_out(org, m.role)
@@ -131,23 +153,8 @@ async def update_org(org_id: str, body: OrgUpdate, user: CurrentUser, db: Db) ->
     for k, val in body.model_dump(exclude_unset=True).items():
         setattr(org, k, str(val) if val is not None else None)
     db.add(org)
-    cs.audit(db, org_id=org_id, actor_type="user", actor_id=user.id, action="organisation.updated",
+    cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="organisation.updated",
              meta=body.model_dump(mode="json", exclude_unset=True))
-    await db.commit()
-    return _org_out(org, m.role)
-
-
-@router.post("/organisations/{org_id}/kyb")
-async def submit_kyb(org_id: str, body: KybSubmit, user: CurrentUser, db: Db) -> dict[str, Any]:
-    """Request live mode. A FOID admin reviews and approves (POST /admin/organisations/{id}/approve)."""
-    m = await _member(db, org_id, user, "owner")
-    org = await db.get(Organisation, org_id)
-    assert org is not None
-    if org.kyb_status == "approved":
-        raise ApiError(409, "kyb_already_approved", "Live mode is already enabled")
-    org.rc_number, org.kyb_status = body.rc_number.strip(), "pending"
-    db.add(org)
-    cs.audit(db, org_id=org_id, actor_type="user", actor_id=user.id, action="kyb.submitted")
     await db.commit()
     return _org_out(org, m.role)
 
@@ -157,7 +164,7 @@ async def submit_kyb(org_id: str, body: KybSubmit, user: CurrentUser, db: Db) ->
 # ---------------------------------------------------------------------------
 
 class MemberAdd(BaseModel):
-    email: EmailStr = Field(description="Must already have a FOID account")
+    email: EmailStr = Field(description="Must already have a FOID Console account (invites: later phase)")
     role: Literal["admin", "developer", "reviewer", "viewer"]
 
 
@@ -168,27 +175,28 @@ class MemberUpdate(BaseModel):
 @router.get("/organisations/{org_id}/members")
 async def list_members(org_id: str, user: CurrentUser, db: Db) -> list[dict[str, Any]]:
     await _member(db, org_id, user)
-    rows = (await db.exec(select(OrgMember, User).join(User, User.id == OrgMember.user_id)  # pyright: ignore[reportArgumentType]
+    rows = (await db.exec(select(OrgMember, ConsoleUser).join(ConsoleUser, ConsoleUser.id == OrgMember.console_user_id)  # pyright: ignore[reportArgumentType]
                           .where(OrgMember.org_id == org_id))).all()
-    return [{"id": m.id, "user_id": u.id, "name": f"{u.first_name} {u.last_name}", "email": u.email,
+    return [{"id": m.id, "console_user_id": u.id, "name": f"{u.first_name} {u.last_name}", "email": u.email,
+             "last_active_at": cs.iso(u.last_active_at),
              "role": m.role, "joined_at": cs.iso(m.created_at)} for m, u in rows]
 
 
 @router.post("/organisations/{org_id}/members", status_code=201)
 async def add_member(org_id: str, body: MemberAdd, user: CurrentUser, db: Db) -> dict[str, Any]:
     await _member(db, org_id, user, "admin")
-    target = (await db.exec(select(User).where(User.email == str(body.email)))).first()
+    target = (await db.exec(select(ConsoleUser).where(ConsoleUser.email == str(body.email).lower()))).first()
     if target is None:
-        raise ApiError(404, "user_not_found", "No FOID account uses that email — ask them to sign up first", "email")
-    exists = (await db.exec(select(OrgMember).where(OrgMember.org_id == org_id, OrgMember.user_id == target.id))).first()
+        raise ApiError(404, "user_not_found", "No FOID Console account uses that email — ask them to sign up to the console first", "email")
+    exists = (await db.exec(select(OrgMember).where(OrgMember.org_id == org_id, OrgMember.console_user_id == target.id))).first()
     if exists:
         raise ApiError(409, "already_member", "That person is already a member")
-    m = OrgMember(org_id=org_id, user_id=target.id, role=body.role)
+    m = OrgMember(org_id=org_id, console_user_id=target.id, role=body.role)
     db.add(m)
-    cs.audit(db, org_id=org_id, actor_type="user", actor_id=user.id, action="member.added",
-             target_type="user", target_id=target.id, meta={"role": body.role})
+    cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="member.added",
+             target_type="member", target_id=target.id, meta={"role": body.role})
     await db.commit()
-    return {"id": m.id, "user_id": target.id, "email": target.email, "role": m.role}
+    return {"id": m.id, "console_user_id": target.id, "email": target.email, "role": m.role}
 
 
 @router.patch("/organisations/{org_id}/members/{member_id}")
@@ -201,7 +209,7 @@ async def update_member(org_id: str, member_id: str, body: MemberUpdate, user: C
         raise ApiError(403, "cannot_change_owner", "The owner's role can't be changed")
     m.role = body.role
     db.add(m)
-    cs.audit(db, org_id=org_id, actor_type="user", actor_id=user.id, action="member.role_changed",
+    cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="member.role_changed",
              target_type="member", target_id=m.id, meta={"role": body.role})
     await db.commit()
     return {"id": m.id, "role": m.role}
@@ -216,7 +224,7 @@ async def remove_member(org_id: str, member_id: str, user: CurrentUser, db: Db) 
     if m.role == "owner":
         raise ApiError(403, "cannot_remove_owner", "The owner can't be removed")
     await db.delete(m)
-    cs.audit(db, org_id=org_id, actor_type="user", actor_id=user.id, action="member.removed",
+    cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="member.removed",
              target_type="member", target_id=member_id)
     await db.commit()
 
@@ -231,14 +239,20 @@ class KeyCreate(BaseModel):
 
 
 def _key_out(k: ApiKey) -> dict[str, Any]:
-    return {"id": k.id, "env": k.env, "name": k.name, "prefix": k.prefix, "last_used_at": cs.iso(k.last_used_at),
+    return {"id": k.id, "env": k.env, "name": k.name, "hint": k.prefix, "last_used_at": cs.iso(k.last_used_at),
             "revoked_at": cs.iso(k.revoked_at), "created_at": cs.iso(k.created_at)}
 
 
 @router.get("/organisations/{org_id}/api-keys")
-async def list_keys(org_id: str, user: CurrentUser, db: Db) -> list[dict[str, Any]]:
+async def list_keys(org_id: str, user: CurrentUser, db: Db, env: Env | None = None,
+                    include_revoked: bool = False) -> list[dict[str, Any]]:
     await _member(db, org_id, user, "developer")
-    rows = (await db.exec(select(ApiKey).where(ApiKey.org_id == org_id).order_by(ApiKey.created_at.desc()))).all()  # pyright: ignore[reportAttributeAccessIssue]
+    q = select(ApiKey).where(ApiKey.org_id == org_id)
+    if env:
+        q = q.where(ApiKey.env == env)
+    if not include_revoked:
+        q = q.where(ApiKey.revoked_at == None)  # noqa: E711
+    rows = (await db.exec(q.order_by(ApiKey.created_at.desc()))).all()  # pyright: ignore[reportAttributeAccessIssue]
     return [_key_out(k) for k in rows]
 
 
@@ -253,10 +267,38 @@ async def create_key(org_id: str, body: KeyCreate, user: CurrentUser, db: Db) ->
     raw, prefix, key_hash = generate_api_key(body.env)
     k = ApiKey(org_id=org_id, env=body.env, name=body.name, prefix=prefix, key_hash=key_hash, created_by=user.id)
     db.add(k)
-    cs.audit(db, org_id=org_id, actor_type="user", actor_id=user.id, action="api_key.created",
+    cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="api_key.created",
              target_type="api_key", target_id=k.id, meta={"env": body.env})
+    await console_inbox.notify(db, org_id, "api_key_created", f"New {body.env} API key: {k.name}",
+                               f"{user.first_name} {user.last_name} created {k.prefix}.", link="/api-keys",
+                               min_role="admin", exclude=user.id)
     await db.commit()
+    await console_notify.key_created(db, org, user, k)
     return {**_key_out(k), "secret": raw}
+
+
+@router.post("/organisations/{org_id}/api-keys/{key_id}/rotate", status_code=201)
+async def rotate_key(org_id: str, key_id: str, user: CurrentUser, db: Db) -> dict[str, Any]:
+    """New key with the same name and env; the old one stops working immediately. Secret shown ONCE."""
+    await _member(db, org_id, user, "developer")
+    old = await db.get(ApiKey, key_id)
+    if old is None or old.org_id != org_id or old.revoked_at is not None:
+        raise ApiError(404, "api_key_not_found", "No such active API key")
+    raw, hint, key_hash = generate_api_key(old.env)
+    new = ApiKey(org_id=org_id, env=old.env, name=old.name, prefix=hint, key_hash=key_hash, created_by=user.id)
+    old.revoked_at = datetime.now(timezone.utc)
+    db.add(old)
+    db.add(new)
+    cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="api_key.rotated",
+             target_type="api_key", target_id=new.id, meta={"env": old.env, "replaces": old.id})
+    await console_inbox.notify(db, org_id, "api_key_created", f"{old.env.capitalize()} API key regenerated: {old.name}",
+                               f"{user.first_name} {user.last_name} replaced {old.prefix} with {hint}.", link="/api-keys",
+                               min_role="admin", exclude=user.id)
+    await db.commit()
+    org = await db.get(Organisation, org_id)
+    assert org is not None
+    await console_notify.key_created(db, org, user, new)
+    return {**_key_out(new), "secret": raw}
 
 
 @router.delete("/organisations/{org_id}/api-keys/{key_id}", status_code=204)
@@ -268,7 +310,7 @@ async def revoke_key(org_id: str, key_id: str, user: CurrentUser, db: Db) -> Non
     if k.revoked_at is None:
         k.revoked_at = datetime.now(timezone.utc)
         db.add(k)
-        cs.audit(db, org_id=org_id, actor_type="user", actor_id=user.id, action="api_key.revoked",
+        cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="api_key.revoked",
                  target_type="api_key", target_id=k.id)
         await db.commit()
 
@@ -314,10 +356,22 @@ async def webhook_event_types() -> list[str]:
 
 
 @router.get("/organisations/{org_id}/webhooks")
-async def list_webhooks(org_id: str, user: CurrentUser, db: Db) -> list[dict[str, Any]]:
+async def list_webhooks(org_id: str, user: CurrentUser, db: Db, env: Env | None = None) -> list[dict[str, Any]]:
+    """Each endpoint with its most recent delivery (status + time), for a health indicator."""
     await _member(db, org_id, user, "developer")
-    rows = (await db.exec(select(WebhookEndpoint).where(WebhookEndpoint.org_id == org_id))).all()
-    return [_wh_out(w) for w in rows]
+    q = select(WebhookEndpoint).where(WebhookEndpoint.org_id == org_id)
+    if env:
+        q = q.where(WebhookEndpoint.env == env)
+    rows = (await db.exec(q.order_by(WebhookEndpoint.created_at))).all()  # pyright: ignore[reportArgumentType]
+    out = []
+    for w in rows:
+        last = (await db.exec(select(WebhookDelivery).where(WebhookDelivery.endpoint_id == w.id, WebhookDelivery.attempts > 0)
+                              .order_by(WebhookDelivery.created_at.desc()).limit(1))).first()  # pyright: ignore[reportAttributeAccessIssue]
+        # pending with attempts = the last try failed and a retry is scheduled
+        status_ = ("retrying" if last.status == "pending" else last.status) if last else None
+        out.append({**_wh_out(w), "last_delivery_status": status_,
+                    "last_delivery_at": cs.iso(last.delivered_at or last.created_at) if last else None})
+    return out
 
 
 @router.post("/organisations/{org_id}/webhooks", status_code=201)
@@ -328,7 +382,7 @@ async def create_webhook(org_id: str, body: WebhookCreate, user: CurrentUser, db
     w = WebhookEndpoint(org_id=org_id, env=body.env, url=str(body.url), secret_enc=encrypt_str(secret),
                         events=_check_events(body.events))
     db.add(w)
-    cs.audit(db, org_id=org_id, actor_type="user", actor_id=user.id, action="webhook.created",
+    cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="webhook.created",
              target_type="webhook", target_id=w.id)
     await db.commit()
     return {**_wh_out(w), "secret": secret}
@@ -363,7 +417,7 @@ async def roll_webhook_secret(org_id: str, webhook_id: str, user: CurrentUser, d
     secret = new_token("whsec_", 24)
     w.secret_enc = encrypt_str(secret)
     db.add(w)
-    cs.audit(db, org_id=org_id, actor_type="user", actor_id=user.id, action="webhook.secret_rolled",
+    cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="webhook.secret_rolled",
              target_type="webhook", target_id=w.id)
     await db.commit()
     return {**_wh_out(w), "secret": secret}
@@ -475,6 +529,19 @@ async def dash_subjects(org_id: str, user: CurrentUser, db: Db, env: Env = "test
     return {"data": [await cs.serialize_subject(db, s) for s in rows], "limit": limit, "offset": offset}
 
 
+@router.get("/organisations/{org_id}/users")
+async def console_users(org_id: str, user: CurrentUser, db: Db, env: Env = "test", status: str | None = None,
+                        q: str | None = None, limit: int = 25, offset: int = 0) -> dict[str, Any]:
+    """Everyone this business verified in `env` (FOID account or not), with a derived status.
+    `counts` ignores `status`/`q` (for the summary cards); `total` is after filtering."""
+    await _member(db, org_id, user)
+    every = await cv.rows(db, org_id, env)
+    hits = [r for r in every if (not status or r.status == status) and (not q or r.matches(q))]
+    limit = max(1, min(limit, 100))
+    return {"data": [r.out() for r in hits[offset:offset + limit]], "total": len(hits),
+            "limit": limit, "offset": offset, "counts": cv.counts(every)}
+
+
 @router.get("/organisations/{org_id}/subjects/{subject_id}")
 async def dash_subject(org_id: str, subject_id: str, user: CurrentUser, db: Db) -> dict[str, Any]:
     await _member(db, org_id, user)
@@ -498,18 +565,8 @@ async def dash_subject(org_id: str, subject_id: str, user: CurrentUser, db: Db) 
 @router.get("/organisations/{org_id}/overview")
 async def overview(org_id: str, user: CurrentUser, db: Db, env: Env = "test") -> dict[str, Any]:
     await _member(db, org_id, user)
-    vs = (await db.exec(select(Verification).where(Verification.org_id == org_id, Verification.env == env))).all()
-    by_status = Counter(v.status for v in vs)
-    by_outcome = Counter(v.outcome for v in vs if v.outcome)
     usage = (await db.exec(select(UsageEvent).where(UsageEvent.org_id == org_id, UsageEvent.env == env))).all()
-    completed = by_status.get("completed", 0)
-    return {
-        "env": env,
-        "verifications": {"total": len(vs), "by_status": dict(by_status), "by_outcome": dict(by_outcome),
-                          "pass_rate": round(by_outcome.get("passed", 0) / completed, 3) if completed else None},
-        "checks_run": dict(Counter(u.check_type for u in usage)),
-        "reused_foid_credential": sum(1 for v in vs if v.reused_foid_credential),
-    }
+    return {**await cv.overview(db, org_id, env), "checks_run": dict(Counter(u.check_type for u in usage))}
 
 
 @router.get("/organisations/{org_id}/usage")

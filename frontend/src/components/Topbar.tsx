@@ -1,4 +1,5 @@
 import RemixIcon from './RemixIcon'
+import NotificationBell from './NotificationBell'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
@@ -30,16 +31,7 @@ export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
 
       {/* Actions */}
       <div className="ml-auto flex items-center gap-3">
-        {/* Bell */}
-        <button
-          aria-label="Notifications"
-          className="w-10 h-10 rounded-full p-3 bg-neutral-100  flex items-center justify-center hover:bg-neutral-200 transition-colors"
-        >
-			<div className='relative'>
-				<RemixIcon name="ri-notification-3-fill" size={16} color="#000000" clickable />
-          		<span className="absolute top-1 right-0 w-2 h-2 rounded-full bg-brand-400 border-2 border-white" />
-			</div>
-        </button>
+        <NotificationBell />
 
         {/* User chip - simplified on mobile */}
         <div className="flex items-center gap-2 pl-4 py-1 border-neutral-100 border-l bg-white">

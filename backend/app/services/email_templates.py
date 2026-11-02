@@ -12,6 +12,7 @@ Each function returns a (subject, html) tuple.
 from __future__ import annotations
 
 import base64
+from html import escape
 from pathlib import Path
 
 
@@ -219,3 +220,70 @@ def welcome(*, first_name: str, to: str, dashboard_url: str = "https://app.foid.
     )
     html = _base(preheader=f"Welcome to FOID, {first_name}! Your credential is ready.", body_html=body).replace("__RECIPIENT__", to)
     return subject, html
+
+
+# ── Business console: verification + password reset codes ───────────────────
+
+def console_code(*, first_name: str, otp: str, to: str, purpose: str) -> tuple[str, str]:
+    """purpose: verify_email | reset_password — for FOID business console accounts."""
+    if purpose == "verify_email":
+        subject, title = "Verify your FOID Console email", "Verify your console email"
+        intro = f"Hi {first_name}, enter this code in the FOID Console to finish setting up your business account."
+        ttl = "30 minutes"
+    else:
+        subject, title = "Your FOID Console password reset code", "Reset your console password"
+        intro = f"Hi {first_name}, use this code in the FOID Console to set a new password."
+        ttl = "10 minutes"
+    body = (
+        _h1(title) + _p(intro) + _otp_block(otp)
+        + _p(f"This code expires in <strong>{ttl}</strong>.", muted=True, size=13)
+        + _divider()
+        + _p("This is for your FOID business console account, which is separate from any personal FOID account. "
+             "If you didn't ask for this, ignore this email.", muted=True, size=13)
+    )
+    html = _base(preheader=f"Your FOID Console code is {otp}", body_html=body).replace("__RECIPIENT__", to)
+    return subject, html
+
+
+# ── Business console: go-live review updates ────────────────────────────────
+
+def kyb_update(*, first_name: str, to: str, org_name: str, status: str, note: str | None = None) -> tuple[str, str]:
+    """status: pending (received) | approved | rejected."""
+    if status == "pending":
+        subject, title = f"We've received {org_name}'s documents", "Documents received"
+        text = "Thanks — our team is reviewing your business documents. This usually takes 1–2 business days. Keep building in Test mode meanwhile."
+    elif status == "approved":
+        subject, title = f"{org_name} is approved for Live", "You're approved for Live 🎉"
+        text = "Your business documents are approved. Switch to Live in the FOID Console and create a live key to start verifying real customers."
+    else:
+        subject, title = f"Action needed: {org_name}'s go-live review", "We need a few changes"
+        text = "We couldn't approve your documents yet. Open Go live in the FOID Console, fix what's listed below and submit again."
+    body = _h1(title) + _p(f"Hi {first_name},") + _p(text)
+    if note:
+        body += _p(f"<strong>Reviewer's note:</strong> {escape(note)}")
+    html = _base(preheader=title, body_html=body).replace("__RECIPIENT__", to)
+    return subject, html
+
+
+# ── Business console: team invite + API key alert ────────────────────────────
+
+def console_invite(*, to: str, org_name: str, inviter: str, role: str, link: str) -> tuple[str, str]:
+    subject = f"{inviter} invited you to {org_name} on FOID Console"
+    body = (
+        _h1(f"Join {escape(org_name)} on FOID")
+        + _p(f"{escape(inviter)} invited you to the FOID Console for <strong>{escape(org_name)}</strong> as <strong>{escape(role)}</strong>.")
+        + _cta_button(link, "Accept invitation")
+        + _p("The link works once and expires in 7 days. If you weren't expecting this, ignore it.", muted=True, size=13)
+    )
+    return subject, _base(preheader=subject, body_html=body).replace("__RECIPIENT__", to)
+
+
+def api_key_alert(*, to: str, org_name: str, actor: str, env: str, key_name: str, hint: str) -> tuple[str, str]:
+    subject = f"New {env} API key created for {org_name}"
+    body = (
+        _h1("A new API key was created")
+        + _p(f"<strong>{escape(actor)}</strong> created the {escape(env)} key <strong>{escape(key_name)}</strong> "
+             f"(<code>{escape(hint)}</code>) for {escape(org_name)}.")
+        + _p("If that wasn't expected, revoke it in FOID Console → API keys & webhooks.", muted=True, size=13)
+    )
+    return subject, _base(preheader=subject, body_html=body).replace("__RECIPIENT__", to)

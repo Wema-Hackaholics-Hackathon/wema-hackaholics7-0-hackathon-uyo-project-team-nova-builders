@@ -216,7 +216,7 @@ export default function MyIdentityPage() {
   /* ── Verification steps — driven by real user + credential data ───── */
   const emailDone      = !!user?.email
   const ninDone        = !!user?.nin_verified_at
-  const bvnDone        = !!user?.bvn
+  const bvnDone        = !!user?.bvn_verified_at
   const phoneVerified  = !!user?.phone
   const livenessVerified = !!user?.liveness_verified_at
 

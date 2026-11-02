@@ -84,3 +84,28 @@ def create_refresh_token_expiry() -> datetime:
     """Return the expiry datetime for a new refresh token."""
     settings = get_settings()
     return datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+
+# ---------------------------------------------------------------------------
+# Business console access tokens — a different token type from user tokens,
+# so a user-app token never works on the console and vice versa.
+# ---------------------------------------------------------------------------
+
+def create_console_access_token(console_user_id: str, kind: str = "console", minutes: int | None = None) -> str:
+    """kind="console" → normal session; kind="console_mfa" → 5-minute ticket between password and 2FA code."""
+    settings = get_settings()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {"sub": console_user_id, "exp": expire, "type": kind}
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_console_access_token(token: str, kind: str = "console") -> str:
+    """Return the console user id. Raises ``jose.JWTError`` for any other token type."""
+    settings = get_settings()
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    if payload.get("type") != kind:
+        raise JWTError("wrong token type")
+    sub: object = payload.get("sub")
+    if not isinstance(sub, str):
+        raise JWTError("missing sub claim")
+    return sub

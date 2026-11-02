@@ -124,6 +124,13 @@ async def revoke_subject(
         db.add(g)
     await db.flush()
     await cancel_pending_for_subject(db, org_id, subject.id)
+    if by != "business":
+        from app.services.console_inbox import notify
+        from app.services.console_views import subject_code
+        code = subject_code(subject.id)
+        await notify(db, org_id, "consent_revoked", f"{code} revoked consent",
+                     "Their data is now hidden and no more updates are sent about them.",
+                     link=f"/users?q={code}", min_role="reviewer")
     await enqueue_event(
         db,
         org_id=org_id,

@@ -40,6 +40,14 @@ def encrypt_str(value: str) -> str:
     return _fernet().encrypt(value.encode()).decode()
 
 
+def encrypt_bytes(value: bytes) -> bytes:
+    return _fernet().encrypt(value)
+
+
+def decrypt_bytes(token: bytes) -> bytes:
+    return _fernet().decrypt(token)
+
+
 def decrypt_str(token: str) -> str:
     return _fernet().decrypt(token.encode()).decode()
 

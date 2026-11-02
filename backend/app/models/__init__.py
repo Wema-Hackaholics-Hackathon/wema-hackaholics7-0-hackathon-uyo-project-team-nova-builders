@@ -12,11 +12,15 @@ from sqlmodel import SQLModel
 
 from .business import (
     ApiKey,
+    ApiRequestLog,
     AuditLog,
     CheckResult,
     ConsentGrant,
     IdempotencyRecord,
+    Invoice,
+    KybDocument,
     Organisation,
+    OrgInvite,
     OrgMember,
     Subject,
     SubjectFace,
@@ -26,6 +30,7 @@ from .business import (
     WebhookEndpoint,
 )
 from .connected_bank import ConnectedBank
+from .console import ConsoleNotification, ConsoleOtp, ConsoleRefreshToken, ConsoleUser
 from .consent import Consent
 from .credential import Credential, CredentialClaims, DEFAULT_CLAIMS
 from .email_verification_token import EmailVerificationToken
@@ -46,13 +51,21 @@ __all__ = [
     "CredentialClaims",
     "DEFAULT_CLAIMS",
     "EmailVerificationToken",
+    "ConsoleUser",
+    "ConsoleRefreshToken",
+    "ConsoleOtp",
+    "ConsoleNotification",
     "ApiKey",
+    "ApiRequestLog",
     "AuditLog",
     "CheckResult",
     "ConsentGrant",
     "IdempotencyRecord",
+    "Invoice",
+    "KybDocument",
     "Organisation",
     "OrgMember",
+    "OrgInvite",
     "Subject",
     "SubjectFace",
     "UsageEvent",

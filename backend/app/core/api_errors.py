@@ -27,14 +27,17 @@ _TYPES = {
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str, message: str, param: str | None = None) -> None:
+    def __init__(self, status: int, code: str, message: str, param: str | None = None,
+                 details: dict[str, object] | None = None) -> None:
         super().__init__(message)
-        self.status, self.code, self.message, self.param = status, code, message, param
+        self.status, self.code, self.message, self.param, self.details = status, code, message, param, details
 
     def body(self) -> dict[str, object]:
         err: dict[str, object] = {"type": _TYPES.get(self.status, "api"), "code": self.code, "message": self.message}
         if self.param:
             err["param"] = self.param
+        if self.details:
+            err["details"] = self.details
         return {"error": err}
 
 

@@ -151,7 +151,7 @@ consent grants with revocation, signed webhooks, business dashboard API.
 
 | Prefix | Auth | Router |
 |---|---|---|
-| `/api/open/v1/*` | `Bearer sk_test_…` / `sk_live_…` | `routers/open_api.py` |
+| `/api/open/v1/*` | `Bearer FOID_TEST_…` / `FOID_LIVE_…` | `routers/open_api.py` |
 | `/api/v1/hosted/sessions/{token}/*` | session token in the URL (no login) | `routers/hosted.py` |
 | `/api/v1/business/*` | FOID user JWT + org role | `routers/business.py` |
 | `/api/v1/connected-apps` | FOID user JWT | `routers/connected_apps.py` |
@@ -163,8 +163,7 @@ startup and migrations only upgrade existing databases. Fresh database: start th
 Postgres are supported (datetimes go through `core/db_types.UTCDateTime`; tests run on either:
 `FOID_TEST_DATABASE_URL=postgresql+asyncpg://… uv run pytest`).
 
-Guides: [`docs/open-api.md`](../docs/open-api.md) (developers) ·
-[`docs/business-dashboard-design-brief.md`](../docs/business-dashboard-design-brief.md) (designer).
+Guide: [`docs/open-api.md`](../docs/open-api.md) (developers).
 Tests: `uv run pytest -q`.
 
 ### Credentials — `/api/v1/credentials/`

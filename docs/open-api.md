@@ -5,7 +5,7 @@ a FOID-hosted page you redirect to or embed, or server-to-server. Every check ru
 consent, and when they withdraw it, FOID stops sending you their data.
 
 - Base URL: `https://<foid-api>/api/open/v1` (local: `http://localhost:8000/api/open/v1`)
-- Auth: `Authorization: Bearer sk_test_…` (sandbox) or `sk_live_…` (live)
+- Auth: `Authorization: Bearer FOID_TEST_…` (sandbox) or `FOID_LIVE_…` (live). The key is shown once at creation; FOID stores only a hash and a hint like `FOID_LIVE_28…29`
 - Formats: JSON, snake_case, ISO-8601 UTC timestamps
 - Interactive reference: `GET /docs` on the API host (OpenAPI)
 
@@ -19,7 +19,7 @@ consent, and when they withdraw it, FOID stops sending you their data.
    can be created. Live keys are refused until then (`403 live_mode_disabled`).
 
 ```bash
-curl https://<foid-api>/api/open/v1/ping -H "Authorization: Bearer sk_test_..."
+curl https://<foid-api>/api/open/v1/ping -H "Authorization: Bearer FOID_TEST_..."
 # {"ok": true, "organisation": "Acme", "env": "test"}
 ```
 
@@ -34,7 +34,7 @@ BVN, liveness), and is branded with your name/logo plus "Secured by FOID". No ca
 
 ```bash
 curl -X POST https://<foid-api>/api/open/v1/verifications \
-  -H "Authorization: Bearer sk_test_..." -H "Idempotency-Key: signup-8841" \
+  -H "Authorization: Bearer FOID_TEST_..." -H "Idempotency-Key: signup-8841" \
   -H "Content-Type: application/json" -d '{
     "checks": ["nin", "liveness"],
     "purpose": "Open a savings wallet",

@@ -84,7 +84,8 @@ class UserOut(BaseModel):
     date_of_birth: str | None = None
     nin_verified_at: datetime | None = None
     identity_locked: bool = False              # names + DOB can't change after NIN verification
-    bvn: str | None
+    bvn: str                                   # masked, e.g. "*******1234" — never the full BVN
+    bvn_verified_at: datetime | None = None
     phone: str | None
     address: str | None
     proof_of_address_url: str | None

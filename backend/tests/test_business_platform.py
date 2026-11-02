@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 from typing import Any
 
 import httpx
@@ -15,6 +16,7 @@ from tests.conftest import (
     WebhookSink,
     deliver_webhooks,
     finish_liveness,
+    make_member,
     make_org,
     make_user,
     sql,
@@ -51,7 +53,7 @@ async def _hosted(client: httpx.AsyncClient, org: dict[str, Any], checks: list[s
 # ---------------------------------------------------------------------------
 
 async def test_api_keys_and_live_mode_gate(client: httpx.AsyncClient) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
 
     r = await client.get(f"{OPEN}/ping", headers=org["h"]["test"])
@@ -65,14 +67,14 @@ async def test_api_keys_and_live_mode_gate(client: httpx.AsyncClient) -> None:
     assert r.status_code == 401 and r.json()["error"]["code"] == "invalid_api_key"
 
     keys = (await client.get(f"/api/v1/business/organisations/{org['id']}/api-keys", headers=owner["headers"])).json()
-    assert "secret" not in keys[0] and keys[0]["prefix"].startswith("sk_test_")
+    assert "secret" not in keys[0] and re.fullmatch(r"FOID_TEST_[A-Za-z0-9]{2}…[A-Za-z0-9]{2}", keys[0]["hint"])
     await client.delete(f"/api/v1/business/organisations/{org['id']}/api-keys/{keys[0]['id']}", headers=owner["headers"])
     r = await client.get(f"{OPEN}/ping", headers=org["h"]["test"])
     assert r.status_code == 401
 
 
 async def test_roles_enforced(client: httpx.AsyncClient) -> None:
-    owner, viewer = await make_user(client), await make_user(client)
+    owner, viewer = await make_member(client), await make_member(client)
     org = await make_org(client, owner)
     r = await client.post(f"/api/v1/business/organisations/{org['id']}/members",
                           json={"email": viewer["email"], "role": "viewer"}, headers=owner["headers"])
@@ -80,7 +82,7 @@ async def test_roles_enforced(client: httpx.AsyncClient) -> None:
     r = await client.post(f"/api/v1/business/organisations/{org['id']}/api-keys", json={"env": "test"},
                           headers=viewer["headers"])
     assert r.status_code == 403 and r.json()["error"]["code"] == "insufficient_role"
-    outsider = await make_user(client)
+    outsider = await make_member(client)
     r = await client.get(f"/api/v1/business/organisations/{org['id']}", headers=outsider["headers"])
     assert r.status_code == 404
 
@@ -90,7 +92,7 @@ async def test_roles_enforced(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 
 async def test_direct_nin_and_bvn_checks(client: httpx.AsyncClient) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     h = org["h"]["test"]
     base = {"first_name": "Ada", "last_name": "Obi", "consent": CONSENT}
@@ -114,7 +116,7 @@ async def test_direct_nin_and_bvn_checks(client: httpx.AsyncClient) -> None:
 
 
 async def test_idempotency(client: httpx.AsyncClient) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     h = {**org["h"]["test"], "Idempotency-Key": "abc-1"}
     body = {"number": "12345678900", "first_name": "Ada", "last_name": "Obi", "consent": CONSENT}
@@ -128,7 +130,7 @@ async def test_idempotency(client: httpx.AsyncClient) -> None:
 
 
 async def test_nin_document_without_ocr_is_an_error_not_a_failure(client: httpx.AsyncClient) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     r = await client.post(f"{OPEN}/checks/nin-document", headers=org["h"]["test"],
                           files={"file": ("slip.png", FACE_PNG, "image/png")},
@@ -143,7 +145,7 @@ async def test_nin_document_ocr_extracts_number(client: httpx.AsyncClient, monke
         return {"document_type": "improved_nin_slip", "nin": "1234 567 8900", "first_name": "Ada",
                 "middle_name": None, "last_name": "Obi", "confidence": 0.95}
     monkeypatch.setattr(groq_service, "extract_nin_document", fake_ocr)
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     r = await client.post(f"{OPEN}/checks/nin-document", headers=org["h"]["test"],
                           files={"file": ("slip.png", FACE_PNG, "image/png")},
@@ -160,7 +162,7 @@ async def test_nin_document_ocr_extracts_number(client: httpx.AsyncClient, monke
 
 async def test_hosted_flow_end_to_end(client: httpx.AsyncClient, stub_face_verify: None,
                                       webhook_sink: WebhookSink) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     secret = await _webhook(client, owner, org)
     v = await _hosted(client, org, ["nin", "liveness"], customer_ref="cust-42", return_url="https://app.example/done")
@@ -208,7 +210,7 @@ async def test_hosted_flow_end_to_end(client: httpx.AsyncClient, stub_face_verif
 
 
 async def test_hosted_declined_consent(client: httpx.AsyncClient) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     v = await _hosted(client, org, ["bvn"])
     r = await client.post(f"/api/v1/hosted/sessions/{v['client_token']}/consent", json={"accept": False})
@@ -218,7 +220,7 @@ async def test_hosted_declined_consent(client: httpx.AsyncClient) -> None:
 
 
 async def test_attempt_limit(client: httpx.AsyncClient) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     v = await _hosted(client, org, ["bvn"])
     hs = f"/api/v1/hosted/sessions/{v['client_token']}"
@@ -233,7 +235,7 @@ async def test_reverify_matches_stored_face(client: httpx.AsyncClient, stub_face
     import cv2
     import numpy as np
 
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     v = await _hosted(client, org, ["liveness"], customer_ref="rv-1")
     hs = f"/api/v1/hosted/sessions/{v['client_token']}"
@@ -268,7 +270,7 @@ async def test_reverify_matches_stored_face(client: httpx.AsyncClient, stub_face
 
 async def test_user_revocation_stops_all_data(client: httpx.AsyncClient, stub_face_verify: None,
                                               webhook_sink: WebhookSink) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     await _webhook(client, owner, org)
     person = await make_user(client)
@@ -321,7 +323,7 @@ async def test_user_revocation_stops_all_data(client: httpx.AsyncClient, stub_fa
 # ---------------------------------------------------------------------------
 
 async def test_subject_linked_when_person_joins_foid(client: httpx.AsyncClient, live_mock_provider: None) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner, live=True)
     nin = "31234567890"
     body = {"number": nin, "first_name": "Ada", "last_name": "Obi", "email": "ada.later@example.com",
@@ -366,7 +368,7 @@ async def test_subject_linked_when_person_joins_foid(client: httpx.AsyncClient, 
 
 async def test_existing_foid_user_checked_by_business_gets_linked(client: httpx.AsyncClient,
                                                                    live_mock_provider: None) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner, live=True)
     person = await make_user(client, nin="41234567890", email="known@example.com")
     r = await client.post(f"{OPEN}/checks/nin", headers=org["h"]["live"],
@@ -382,7 +384,7 @@ async def test_existing_foid_user_checked_by_business_gets_linked(client: httpx.
 # ---------------------------------------------------------------------------
 
 async def test_trust_report_requires_financial_scope(client: httpx.AsyncClient) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     person = await make_user(client)
     v = await _hosted(client, org, ["nin"], scopes=["financial"])
@@ -397,7 +399,7 @@ async def test_trust_report_requires_financial_scope(client: httpx.AsyncClient) 
 
 
 async def test_delete_subject_erases_everything(client: httpx.AsyncClient, stub_face_verify: None) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     v = await _hosted(client, org, ["liveness"], customer_ref="erase-me")
     hs = f"/api/v1/hosted/sessions/{v['client_token']}"
@@ -414,7 +416,7 @@ async def test_delete_subject_erases_everything(client: httpx.AsyncClient, stub_
 
 
 async def test_webhook_secret_encrypted_and_test_endpoint(client: httpx.AsyncClient, webhook_sink: WebhookSink) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     org = await make_org(client, owner)
     secret = await _webhook(client, owner, org)
     row = (await sql("SELECT id, secret_enc FROM webhook_endpoints WHERE org_id=:o", o=org["id"]))[0]
@@ -425,7 +427,7 @@ async def test_webhook_secret_encrypted_and_test_endpoint(client: httpx.AsyncCli
 
 async def test_credential_state_change_reaches_monitoring_lender(client: httpx.AsyncClient,
                                                                 webhook_sink: WebhookSink) -> None:
-    owner = await make_user(client)
+    owner = await make_member(client)
     lender = await make_org(client, owner)
     other = await make_org(client, owner)            # identity-only business: must NOT be told
     await _webhook(client, owner, lender)
