@@ -112,3 +112,28 @@ async function _silentRefresh(): Promise<boolean> {
     return false
   }
 }
+
+/**
+ * Human-readable reason for a failed API call.
+ * Network failure → names the server it tried; 5xx → the server's message if it
+ * sent one (e.g. "database schema is out of date"), else a generic one;
+ * 4xx → the backend's `detail` (string or first validation message) or Open-API `error.message`.
+ */
+export function apiErrorMessage(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  const e = err as {
+    response?: { status?: number; data?: { detail?: unknown; error?: { message?: string } } }
+  }
+  if (!e?.response) {
+    return `Can't reach the FOID server${BASE_URL ? ` at ${BASE_URL}` : ''}. Check that the backend is running.`
+  }
+  const { status = 0, data } = e.response
+  const detail = data?.detail
+  if (typeof detail === 'string' && detail) return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    const msg = (detail[0] as { msg?: unknown })?.msg
+    if (typeof msg === 'string') return msg.replace(/^Value error, /, '')
+  }
+  if (data?.error?.message) return data.error.message
+  if (status >= 500) return 'Something went wrong on our side. Please try again.'
+  return fallback
+}

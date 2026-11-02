@@ -346,12 +346,22 @@ export default function ProfileSettingsPage() {
 
         {/* ── Personal information ── */}
         <div className="bg-white rounded-2xl border border-neutral-100 p-6 shadow-sm flex flex-col gap-4">
-          <h2 className="text-[15px] font-bold text-neutral-900">Personal information</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[15px] font-bold text-neutral-900">Personal information</h2>
+            {user?.identity_locked && (
+              <span className="flex items-center gap-1 text-[11.5px] font-semibold text-brand-600">
+                <RemixIcon name="ri-lock-2-line" size={13} color="#a21caf" /> Locked to your verified NIN
+              </span>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <ReadField label="First name"   value={user?.firstName  ?? ''} />
             <ReadField label="Last name"    value={user?.lastName   ?? ''} />
             <ReadField label="Middle name"  value={user?.middleName ?? ''} />
-            <ReadField label="NIN"          value={user?.nin ? '****' + user.nin.slice(-4) : '—'} />
+            <ReadField label="NIN"          value={user?.nin || '—'} />
+            <ReadField label="Date of birth" value={user?.date_of_birth
+              ? new Date(user.date_of_birth + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+              : 'Added when you verify your NIN'} />
             <ReadField label="Email"        value={user?.email ?? ''} />
             <ReadField label="Phone"        value={user?.phone ?? 'Not set'} />
           </div>

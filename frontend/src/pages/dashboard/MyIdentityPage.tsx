@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import RemixIcon from '@/components/RemixIcon'
-import LivenessCapture from '@/components/LivenessCapture'
+import LivenessModal from '@/liveness/LivenessModal'
+import DatePicker from '@/components/DatePicker'
 import { useCredential } from '@/contexts/CredentialContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { api, BASE_URL, getAccessToken } from '@/lib/api'
-import type { ConnectedBank, CredentialClaims } from '@/types/foid'
+import { api, apiErrorMessage, BASE_URL, getAccessToken } from '@/lib/api'
+import type { ConnectedBank, CredentialClaims, User } from '@/types/foid'
 
 /* ── Trust score ────────────────────────────────────────────────────── */
 function computeTrustScore(
@@ -116,6 +117,76 @@ function StepAction({
   )
 }
 
+/* ── NIN verification: confirm names as on the NIN + date of birth ──── */
+function NinVerifyAction({ user, onSuccess }: { user: User | null; onSuccess: () => void }) {
+  const [firstName, setFirstName]   = useState(user?.first_name ?? '')
+  const [middleName, setMiddleName] = useState(user?.middle_name ?? '')
+  const [lastName, setLastName]     = useState(user?.last_name ?? '')
+  const [dob, setDob]               = useState(user?.date_of_birth ?? '')
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState('')
+
+  const ready = firstName.trim() !== '' && lastName.trim() !== '' && dob !== ''
+
+  async function submit() {
+    setError('')
+    setLoading(true)
+    try {
+      await api.post('/auth/me/nin/verify', {
+        first_name: firstName.trim(),
+        middle_name: middleName.trim() || null,
+        last_name: lastName.trim(),
+        date_of_birth: dob,
+      })
+      onSuccess()
+    } catch (e) {
+      setError(apiErrorMessage(e, 'NIN verification failed. Please try again.'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const input = 'w-full border border-neutral-200 rounded-lg px-3 py-2 text-[14px] outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500'
+
+  return (
+    <div className="mt-3 p-4 rounded-xl bg-neutral-50 border border-neutral-200 flex flex-col gap-3">
+      <p className="text-[12.5px] text-neutral-600 leading-relaxed">
+        Enter your name exactly as it appears on your NIN slip, and your date of birth.
+        We check them against your NIN record ({user?.nin || 'on file'}).{' '}
+        <b>Once verified, your name and date of birth can't be changed.</b>
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div>
+          <label className="text-[12px] font-semibold text-neutral-500">First name</label>
+          <input className={input} value={firstName} onChange={e => setFirstName(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-[12px] font-semibold text-neutral-500">Middle name</label>
+          <input className={input} value={middleName} onChange={e => setMiddleName(e.target.value)} placeholder="Optional" />
+        </div>
+        <div>
+          <label className="text-[12px] font-semibold text-neutral-500">Last name</label>
+          <input className={input} value={lastName} onChange={e => setLastName(e.target.value)} />
+        </div>
+      </div>
+      <div>
+        <label className="text-[12px] font-semibold text-neutral-500">Date of birth</label>
+        <DatePicker value={dob} onChange={setDob} placeholder="Select your date of birth" />
+      </div>
+      {error && <p className="text-[12px] text-red-500">{error}</p>}
+      <button
+        onClick={() => void submit()}
+        disabled={!ready || loading}
+        className="flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-brand-500 text-white text-[13px] font-semibold hover:bg-brand-600 transition-colors disabled:opacity-60"
+      >
+        {loading
+          ? <><RemixIcon name="ri-loader-4-line" size={15} color="#fff" /> Verifying…</>
+          : 'Verify NIN'}
+      </button>
+    </div>
+  )
+}
+
 /* ── State meta ─────────────────────────────────────────────────────── */
 const STATE_META: Record<string, { label: string; color: string; bg: string }> = {
   active:       { label: 'Fully verified · Tier 2', color: '#a21caf', bg: '#fae8ff' },
@@ -135,6 +206,7 @@ export default function MyIdentityPage() {
 
   const [banks, setBanks]               = useState<ConnectedBank[]>([])
   const [activeStep, setActiveStep]     = useState<string | null>(null)
+  const [livenessOpen, setLivenessOpen] = useState(false)
   const [downloading, setDownloading]   = useState(false)
 
   useEffect(() => {
@@ -143,7 +215,7 @@ export default function MyIdentityPage() {
 
   /* ── Verification steps — driven by real user + credential data ───── */
   const emailDone      = !!user?.email
-  const ninDone        = !!user?.nin
+  const ninDone        = !!user?.nin_verified_at
   const bvnDone        = !!user?.bvn
   const phoneVerified  = !!user?.phone
   const livenessVerified = !!user?.liveness_verified_at
@@ -306,6 +378,52 @@ export default function MyIdentityPage() {
           {/* ── Action cards ── */}
           <div className="flex flex-col gap-3 mt-8">
 
+            {/* Verify NIN (paid registry lookup — only after liveness) */}
+            <div className={[
+              'rounded-xl border p-4',
+              ninDone ? 'border-brand-200 bg-brand-50' : 'border-neutral-200 bg-white',
+            ].join(' ')}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={[
+                    'w-8 h-8 rounded-full flex items-center justify-center shrink-0',
+                    ninDone ? 'bg-brand-500' : 'bg-neutral-100',
+                  ].join(' ')}>
+                    <RemixIcon name={ninDone ? 'ri-check-line' : 'ri-shield-user-line'} size={16} color={ninDone ? '#fff' : '#a1a1aa'} />
+                  </div>
+                  <div>
+                    <div className="text-[13.5px] font-semibold text-neutral-900">Verify NIN</div>
+                    <div className="text-[12px] text-neutral-400">
+                      {ninDone
+                        ? 'Name and date of birth match your NIN record'
+                        : livenessVerified
+                          ? 'Confirm your name and date of birth against your NIN'
+                          : 'Complete the liveness check first'}
+                    </div>
+                  </div>
+                </div>
+                {ninDone ? (
+                  <span className="text-[12px] font-semibold text-brand-600 shrink-0 flex items-center gap-1">
+                    <RemixIcon name="ri-lock-2-line" size={13} color="#a21caf" /> Verified
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setActiveStep(activeStep === 'nin' ? null : 'nin')}
+                    disabled={!livenessVerified}
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-[12.5px] font-semibold hover:bg-brand-600 transition-colors disabled:opacity-50"
+                  >
+                    {activeStep === 'nin' ? 'Cancel' : 'Verify now'}
+                  </button>
+                )}
+              </div>
+              {activeStep === 'nin' && !ninDone && livenessVerified && (
+                <NinVerifyAction
+                  user={user}
+                  onSuccess={async () => { await Promise.all([refreshUser(), refreshCredential()]); setActiveStep(null) }}
+                />
+              )}
+            </div>
+
             {/* Verify BVN */}
             <div className={[
               'rounded-xl border p-4',
@@ -369,22 +487,19 @@ export default function MyIdentityPage() {
                   <span className="text-[12px] font-semibold text-brand-600 shrink-0">Verified</span>
                 ) : (
                   <button
-                    onClick={() => setActiveStep(activeStep === 'liveness' ? null : 'liveness')}
+                    onClick={() => setLivenessOpen(true)}
                     className="shrink-0 px-3 py-1.5 rounded-lg bg-brand-500 text-white text-[12.5px] font-semibold hover:bg-brand-600 transition-colors"
                   >
-                    {activeStep === 'liveness' ? 'Cancel' : 'Start check'}
+                    Start check
                   </button>
                 )}
               </div>
-              {activeStep === 'liveness' && !livenessVerified && (
-                <LivenessCapture
-                  purpose="enrol"
-                  onComplete={async () => {
-                    await Promise.all([refreshUser(), refreshCredential()])
-                    setActiveStep(null)
-                  }}
-                />
-              )}
+              <LivenessModal
+                open={livenessOpen}
+                purpose="enrol"
+                onClose={() => setLivenessOpen(false)}
+                onPassed={() => { void Promise.all([refreshUser(), refreshCredential()]) }}
+              />
             </div>
 
             {/* Verify phone */}

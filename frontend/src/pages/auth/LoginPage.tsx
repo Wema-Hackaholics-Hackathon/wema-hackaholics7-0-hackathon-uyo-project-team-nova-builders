@@ -24,12 +24,12 @@ export default function LoginPage() {
     e.preventDefault()
     setError('')
 
-    const success = await login(form.email, form.password)
+    const result = await login(form.email, form.password)
 
-    if (success) {
+    if (result.ok) {
       navigate('/dashboard')
     } else {
-      setError('Invalid email or password')
+      setError(result.error)
     }
   }
 

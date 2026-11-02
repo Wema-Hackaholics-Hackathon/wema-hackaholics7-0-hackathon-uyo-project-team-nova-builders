@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import FoidWordmark from '@/components/FoidWordmark'
-import LivenessCapture from '@/components/LivenessCapture'
+import LivenessStage, { FAILURES, type LivenessResult, type StartedSession } from '@/liveness/LivenessStage'
 import RemixIcon from '@/components/RemixIcon'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
@@ -33,6 +33,9 @@ const REASONS: Record<string, string> = {
   face_mismatch: "That face didn't match the one on file.",
   provider_unavailable: 'Verification is temporarily unavailable. Try again shortly.',
   ocr_unavailable: 'Document scanning is unavailable — enter your NIN instead.',
+  ...FAILURES,
+  face_record_rejected: 'The liveness result could not be accepted. Please try again.',
+  no_face_captured: 'No face was captured. Face the camera in good light and try again.',
 }
 
 function detail(e: unknown, fallback: string): string {
@@ -312,14 +315,11 @@ export default function HostedVerificationPage() {
                     </p>
                   )}
                   {current.type === 'liveness' || current.type === 'reverify' ? (
-                    <LivenessCapture
+                    <LivenessStage
                       key={`${current.type}-${current.attempts_left}`}
-                      purpose={current.type === 'liveness' ? 'enrol' : 'verify'}
-                      endpoint={`${base}/liveness`}
-                      consentRequired={false}
-                      autoStart={false}
-                      onComplete={() => void load()}
-                      onAttempt={() => void load()}
+                      start={async () => (await api.post<StartedSession>(`${base}/liveness/start`)).data}
+                      complete={async sid => (await api.post<LivenessResult>(`${base}/liveness/${sid}/complete`)).data}
+                      onFinished={() => void load()}
                     />
                   ) : (
                     <NumberStep key={`${current.type}-${current.attempts_left}`} step={current} base={base} onDone={() => void load()} />

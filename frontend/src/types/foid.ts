@@ -64,6 +64,12 @@ export interface User {
   liveness_selfie_url?: string | null
   /** When a face was last enrolled through a passed liveness check */
   liveness_verified_at?: string | null
+  /** Collected during NIN verification (YYYY-MM-DD) */
+  date_of_birth?: string | null
+  /** When names + DOB matched the NIN record */
+  nin_verified_at?: string | null
+  /** Names and DOB can't change once the NIN is verified */
+  identity_locked?: boolean
   email: string
   created_at: string
   email_verified: boolean

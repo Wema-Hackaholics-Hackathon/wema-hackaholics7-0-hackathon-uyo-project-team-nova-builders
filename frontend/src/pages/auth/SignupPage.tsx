@@ -3,7 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import FoidWordmark from '@/components/FoidWordmark'
 
-/* ── Password strength rules — mirrors backend-2/app/schemas/auth.py ── */
+/* ── NIN rule — mirrors backend/app/schemas/auth.py (exactly 11 digits) ── */
+const NIN_LENGTH = 11
+
+/* ── Password strength rules — mirrors backend/app/schemas/auth.py ── */
 const PWD_RULES = [
   { key: 'length',  label: 'At least 8 characters',       test: (p: string) => p.length >= 8 },
   { key: 'upper',   label: 'One uppercase letter (A–Z)',   test: (p: string) => /[A-Z]/.test(p) },
@@ -21,6 +24,7 @@ export default function SignupPage() {
   const [error, setError]               = useState('')
   const [pwdTouched, setPwdTouched]     = useState(false)
   const [cfmTouched, setCfmTouched]     = useState(false)
+  const [ninTouched, setNinTouched]     = useState(false)
   const [form, setForm] = useState({
     firstName: '', lastName: '', middleName: '',
     nin: '', email: '', password: '', confirmPassword: '',
@@ -34,6 +38,10 @@ export default function SignupPage() {
   const set = (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
 
+  // NIN: digits only, never longer than 11
+  const setNin = (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(prev => ({ ...prev, nin: e.target.value.replace(/\D/g, '').slice(0, NIN_LENGTH) }))
+
   /* ── Derived validation ───────────────────────────────────────────── */
   const pwdChecks = useMemo(
     () => PWD_RULES.map(r => ({ ...r, pass: r.test(form.password) })),
@@ -41,11 +49,12 @@ export default function SignupPage() {
   )
   const allPwdPass     = pwdChecks.every(c => c.pass)
   const passwordsMatch = form.confirmPassword.length > 0 && form.password === form.confirmPassword
+  const ninValid       = form.nin.length === NIN_LENGTH
 
   const requiredFilled =
     form.firstName.trim() !== '' &&
     form.lastName.trim()  !== '' &&
-    form.nin.trim()       !== '' &&
+    ninValid                       &&
     form.email.trim()     !== ''
 
   const canSubmit = requiredFilled && allPwdPass && passwordsMatch && agreed
@@ -55,7 +64,7 @@ export default function SignupPage() {
     if (!canSubmit) return
     setError('')
 
-    const success = await signup({
+    const result = await signup({
       firstName: form.firstName,
       lastName: form.lastName,
       middleName: form.middleName || undefined,
@@ -64,10 +73,10 @@ export default function SignupPage() {
       password: form.password,
     })
 
-    if (success) {
+    if (result.ok) {
       navigate('/dashboard')
     } else {
-      setError('An account with this email already exists')
+      setError(result.error)
     }
   }
 
@@ -157,10 +166,21 @@ export default function SignupPage() {
                 <Input id="middle-name" name="middleName" placeholder="Bob"
                   value={form.middleName} onChange={set} />
               </Field>
-              <Field label="NIN" required>
-                <Input id="nin" name="nin" placeholder="23365001238"
-                  value={form.nin} onChange={set} required />
-              </Field>
+              <div className="flex flex-col gap-1.5">
+                <Field label="NIN" required>
+                  <Input id="nin" name="nin" placeholder="23365001238"
+                    inputMode="numeric" autoComplete="off" maxLength={NIN_LENGTH}
+                    value={form.nin} onChange={setNin} onFocus={() => setNinTouched(true)} required />
+                </Field>
+                {ninTouched && (
+                  <RuleLine
+                    pass={ninValid}
+                    label={ninValid
+                      ? 'NIN is 11 digits'
+                      : `NIN must be exactly 11 digits (${form.nin.length}/${NIN_LENGTH})`}
+                  />
+                )}
+              </div>
             </div>
 
             <Field label="Email address" required>
@@ -290,6 +310,26 @@ export default function SignupPage() {
 }
 
 /* ── Local sub-components ───────────────────────────────────────────────── */
+
+/** One ✓/✗ validation line — same look as the password rules. */
+function RuleLine({ pass, label }: { pass: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <span className={`inline-flex items-center justify-center w-3.5 h-3.5 rounded-full shrink-0 ${pass ? 'bg-[#C800DE]' : 'bg-red-500'}`}>
+        {pass ? (
+          <svg width="7" height="6" viewBox="0 0 7 6" fill="none">
+            <path d="M1 3L2.8 5L6 1" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        ) : (
+          <svg width="7" height="7" viewBox="0 0 7 7" fill="none">
+            <path d="M1.5 1.5L5.5 5.5M5.5 1.5L1.5 5.5" stroke="white" strokeWidth="1.4" strokeLinecap="round"/>
+          </svg>
+        )}
+      </span>
+      <span className={`text-[11px] ${pass ? 'text-[#C800DE]' : 'text-red-500'}`}>{label}</span>
+    </div>
+  )
+}
 
 function Field({
   label, required, children,

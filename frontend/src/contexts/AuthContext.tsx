@@ -1,12 +1,13 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { User } from '../types/foid'
-import { api, setTokens, clearTokens, restoreSession } from '../lib/api'
+import { api, apiErrorMessage, setTokens, clearTokens, restoreSession } from '../lib/api'
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
   loading: boolean
-  login: (email: string, password: string) => Promise<boolean>
+  /** ok, or the real reason it failed (server message, unreachable server, …) */
+  login: (email: string, password: string) => Promise<AuthResult>
   signup: (userData: {
     firstName: string
     lastName: string
@@ -14,12 +15,14 @@ interface AuthContextType {
     nin: string
     email: string
     password: string
-  }) => Promise<boolean>
+  }) => Promise<AuthResult>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
   verifyEmail: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>
   resendVerification: (email: string) => Promise<{ ok: boolean; error?: string }>
 }
+
+export type AuthResult = { ok: true } | { ok: false; error: string }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
@@ -60,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     nin: string
     email: string
     password: string
-  }): Promise<boolean> => {
+  }): Promise<AuthResult> => {
     try {
       const res = await api.post<{ access_token: string; refresh_token: string }>(
         '/auth/signup',
@@ -76,13 +79,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTokens(res.data.access_token, res.data.refresh_token)
       const meRes = await api.get<Record<string, unknown>>('/auth/me')
       setUser(normaliseUser(meRes.data))
-      return true
-    } catch {
-      return false
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: apiErrorMessage(err) }
     }
   }, [])
 
-  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
+  const login = useCallback(async (email: string, password: string): Promise<AuthResult> => {
     try {
       const res = await api.post<{ access_token: string; refresh_token: string }>(
         '/auth/login',
@@ -91,9 +94,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTokens(res.data.access_token, res.data.refresh_token)
       const meRes = await api.get<Record<string, unknown>>('/auth/me')
       setUser(normaliseUser(meRes.data))
-      return true
-    } catch {
-      return false
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: apiErrorMessage(err) }
     }
   }, [])
 

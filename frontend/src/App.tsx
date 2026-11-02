@@ -18,6 +18,7 @@ import ForgotPasswordPage from './pages/auth/ForgotPasswordPage.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import LandingPage from './pages/LandingPage.tsx'
 import HostedVerificationPage from './pages/verify/HostedVerificationPage.tsx'
+import LivenessHandoffPage from './liveness/LivenessHandoffPage.tsx'
 import { CredentialProvider } from './contexts/CredentialContext.tsx'
 
 export default function App() {
@@ -35,6 +36,8 @@ export default function App() {
 
       {/* Hosted business verification (Open API) — no login required */}
       <Route path="/verify/:token" element={<HostedVerificationPage />} />
+      {/* Liveness continued on a phone (QR / link from the liveness popup) — no login */}
+      <Route path="/liveness/:token" element={<LivenessHandoffPage />} />
 
       <Route path="/dashboard" element={
         <ProtectedRoute>
