@@ -439,7 +439,7 @@ async def dash_verifications(org_id: str, user: CurrentUser, db: Db, env: Env = 
     out = []
     for v in rows:
         s = await db.get(Subject, v.subject_id)
-        item = await cs.serialize_verification(db, v, s)
+        item = await cs.serialize_verification(db, v, s, include_link=True)
         scopes = await consent.granted_scopes(db, org_id, v.subject_id)
         item["subject_name"] = (" ".join(p for p in (s.first_name, s.last_name) if p)
                                 if s and "identity" in scopes else None)
@@ -454,7 +454,7 @@ async def dash_verification(org_id: str, verification_id: str, user: CurrentUser
     if v is None or v.org_id != org_id:
         raise ApiError(404, "verification_not_found", "No such verification")
     s = await db.get(Subject, v.subject_id)
-    out = await cs.serialize_verification(db, v, s)
+    out = await cs.serialize_verification(db, v, s, include_link=True)
     out["subject"] = await cs.serialize_subject(db, s) if s else None
     out["timeline"] = [
         {"action": a.action, "actor_type": a.actor_type, "at": cs.iso(a.created_at), "meta": a.meta}

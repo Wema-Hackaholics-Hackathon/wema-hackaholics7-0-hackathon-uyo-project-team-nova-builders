@@ -108,3 +108,19 @@ async def test_enrol_verify_replay_delete(client: httpx.AsyncClient, stub_face_v
     assert (await client.get(f"{LV}/status", headers=h)).json()["enrolled"] is False
     claims = (await client.get("/api/v1/credentials/me", headers=h)).json()["claims"]
     assert claims["identity_verified"] is False
+
+
+async def test_signup_survives_email_provider_failure(client: httpx.AsyncClient, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A rejected/failed email must not turn a created account into a 500."""
+    from app.config import get_settings
+    from app.services import email_service
+
+    async def boom(**_kw: object) -> None:
+        raise RuntimeError("Invalid `to` field")
+    monkeypatch.setattr(get_settings(), "RESEND_API_KEY", "re_test")
+    monkeypatch.setattr(email_service, "_send_via_resend", boom)
+    r = await client.post("/api/v1/auth/signup", json=dict(first_name="Ada", last_name="Obi", nin="69999999990",
+                                                          email="bounce@example.com", password="Passw0rd!x"))
+    assert r.status_code == 201, r.text
+    r = await client.post("/api/v1/auth/forgot-password", json={"email": "bounce@example.com"})
+    assert r.status_code == 200

@@ -35,8 +35,12 @@ async def send_email(
     body: str,
     *,
     html: str | None = None,
-) -> None:
-    """Send an email.
+) -> bool:
+    """Send an email. Never raises — returns False if delivery failed.
+
+    Callers send emails AFTER committing (account created, OTP stored), so a
+    provider error (bad address, quota, outage) must not turn a successful
+    request into a 500. The user can always request a new code.
 
     Parameters
     ----------
@@ -51,7 +55,10 @@ async def send_email(
     from app.config import get_settings
     settings = get_settings()
 
-    if settings.RESEND_API_KEY:
+    if not settings.RESEND_API_KEY:
+        _log_to_console(to=to, subject=subject, body=body)
+        return True
+    try:
         await _send_via_resend(
             api_key=settings.RESEND_API_KEY,
             from_email=settings.FROM_EMAIL,
@@ -60,8 +67,10 @@ async def send_email(
             body=body,
             html=html,
         )
-    else:
-        _log_to_console(to=to, subject=subject, body=body)
+        return True
+    except Exception as exc:   # provider/network errors — log, don't fail the request
+        print(f"[email] delivery to {to} failed ({type(exc).__name__}): {exc}", flush=True)
+        return False
 
 
 # ---------------------------------------------------------------------------

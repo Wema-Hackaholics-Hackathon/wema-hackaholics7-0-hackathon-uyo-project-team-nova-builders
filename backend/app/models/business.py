@@ -204,6 +204,8 @@ class Verification(SQLModel, table=True):
     status: str = Field(default="pending", index=True)   # pending | in_progress | completed | cancelled | expired
     outcome: str | None = Field(default=None)            # passed | failed | needs_review
     session_token_hash: str = Field(unique=True, index=True)
+    # Fernet-encrypted token, so the business can fetch the hosted link again while it's open
+    session_token_enc: str | None = Field(default=None)
     return_url: str | None = Field(default=None)
     reused_foid_credential: bool = Field(default=False)
     metadata_: dict[str, Any] = Field(default_factory=dict, sa_column=Column("metadata", JSON, nullable=False))

@@ -157,6 +157,12 @@ consent grants with revocation, signed webhooks, business dashboard API.
 | `/api/v1/connected-apps` | FOID user JWT | `routers/connected_apps.py` |
 | `/api/v1/admin/organisations` | admin | `routers/admin.py` (KYB → live mode) |
 
+**Database setup.** The first Alembic revision is empty — base tables come from `init_db()` on
+startup and migrations only upgrade existing databases. Fresh database: start the app once, then
+`uv run alembic stamp head`. Existing database: `uv run alembic upgrade head`. Both SQLite and
+Postgres are supported (datetimes go through `core/db_types.UTCDateTime`; tests run on either:
+`FOID_TEST_DATABASE_URL=postgresql+asyncpg://… uv run pytest`).
+
 Guides: [`docs/open-api.md`](../docs/open-api.md) (developers) ·
 [`docs/business-dashboard-design-brief.md`](../docs/business-dashboard-design-brief.md) (designer).
 Tests: `uv run pytest -q`.

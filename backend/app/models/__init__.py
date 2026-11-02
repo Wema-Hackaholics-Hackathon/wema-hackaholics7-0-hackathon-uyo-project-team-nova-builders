@@ -73,3 +73,8 @@ __all__ = [
 ]
 
 metadata = SQLModel.metadata
+
+# All datetime columns: store naive UTC, return aware UTC (SQLite + Postgres).
+from app.core.db_types import use_utc_datetimes  # noqa: E402
+
+use_utc_datetimes(metadata)

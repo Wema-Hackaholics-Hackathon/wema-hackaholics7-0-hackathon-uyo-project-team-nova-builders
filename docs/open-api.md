@@ -56,8 +56,9 @@ curl -X POST https://<foid-api>/api/open/v1/verifications \
 | `return_url` | Redirect after finishing (`?verification_id=…&status=…&outcome=…`) |
 | `metadata` | Up to your own string key/values, echoed back |
 
-Response (`201`) includes `id`, `hosted_url` and `client_token`. **These are returned only once** — store them
-or create a new verification.
+Response (`201`) includes `id`, `hosted_url` and `client_token`. While the verification is still `pending` /
+`in_progress`, `GET /verifications/{id}` returns them again (e.g. to resend the link); once it is completed,
+cancelled or expired they are `null`. They are never included in webhook payloads.
 
 ### Send the person to it
 

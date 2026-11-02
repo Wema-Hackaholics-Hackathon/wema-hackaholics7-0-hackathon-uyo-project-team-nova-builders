@@ -293,7 +293,7 @@ async def refresh(
         )
 
     from datetime import datetime, timezone
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)  # SQLite stores naive datetimes
+    now_utc = datetime.now(timezone.utc)   # columns return aware UTC (core/db_types.py)
     if row.expires_at < now_utc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -759,7 +759,7 @@ async def verify_reset_code(
         raise invalid_exc
 
     code_hash = hash_refresh_token(body.code)
-    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(timezone.utc)
 
     tok_result = await db.exec(
         select(PasswordResetToken).where(
@@ -770,7 +770,7 @@ async def verify_reset_code(
     )
     tok = tok_result.first()
 
-    if tok is None or tok.expires_at < now_naive:
+    if tok is None or tok.expires_at < now_utc:
         raise invalid_exc
 
     # Issue a reset_token and store its hash.
@@ -806,7 +806,7 @@ async def reset_password(
     )
 
     token_hash = hash_refresh_token(body.reset_token)
-    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(timezone.utc)
 
     tok_result = await db.exec(
         select(PasswordResetToken).where(
@@ -816,7 +816,7 @@ async def reset_password(
     )
     tok = tok_result.first()
 
-    if tok is None or tok.expires_at < now_naive:
+    if tok is None or tok.expires_at < now_utc:
         raise invalid_exc
 
     user = await db.get(User, tok.user_id)
@@ -857,7 +857,7 @@ async def verify_email(
         raise invalid_exc
 
     code_hash = hash_refresh_token(body.code)
-    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(timezone.utc)
 
     tok_result = await db.exec(
         select(EmailVerificationToken).where(
@@ -868,7 +868,7 @@ async def verify_email(
     )
     tok = tok_result.first()
 
-    if tok is None or tok.expires_at < now_naive:
+    if tok is None or tok.expires_at < now_utc:
         raise invalid_exc
 
     # Burn the token

@@ -15,7 +15,9 @@ from typing import Any
 
 _TMP = tempfile.mkdtemp(prefix="foid-tests-")
 os.environ.update({
-    "DATABASE_URL": f"sqlite+aiosqlite:///{_TMP}/test.db",
+    # Set FOID_TEST_DATABASE_URL to run against Postgres, e.g.
+    #   postgresql+asyncpg://postgres:test@localhost:55432/foid_test
+    "DATABASE_URL": os.environ.get("FOID_TEST_DATABASE_URL") or f"sqlite+aiosqlite:///{_TMP}/test.db",
     "ENV": "test",
     "RESEND_API_KEY": "",
     "GROQ_API_KEY": "",
@@ -41,6 +43,12 @@ limiter.enabled = False
 
 @pytest.fixture(scope="session", autouse=True)
 async def _db() -> None:
+    if os.environ.get("FOID_TEST_DATABASE_URL"):   # persistent server DB: start from an empty schema
+        from sqlmodel import SQLModel
+
+        from app.config import _get_engine
+        async with _get_engine().begin() as conn:
+            await conn.run_sync(SQLModel.metadata.drop_all)
     await init_db()
 
 
@@ -77,6 +85,19 @@ async def sql(statement: str, **params: Any) -> list[Any]:
         return list(rows)
 
 
+async def set_claim(user_id: str, key: str, value: Any) -> None:
+    """Dialect-neutral claim update (SQLite and Postgres)."""
+    from sqlmodel import select
+
+    from app.models import Credential
+
+    async with _get_session_factory()() as db:
+        cred = (await db.exec(select(Credential).where(Credential.user_id == user_id))).one()
+        cred.claims = {**cred.claims, key: value}  # type: ignore[assignment]
+        db.add(cred)
+        await db.commit()
+
+
 _counter = iter(range(10_000))
 
 
@@ -91,8 +112,7 @@ async def make_user(client: httpx.AsyncClient, *, nin: str | None = None, email:
     headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
     me = (await client.get("/api/v1/auth/me", headers=headers)).json()
     if verify_email:
-        await sql("UPDATE credentials SET claims=json_set(claims,'$.email_verified',json('true')) WHERE user_id=:u",
-                  u=me["id"])
+        await set_claim(me["id"], "email_verified", True)
     return {"id": me["id"], "email": email, "nin": nin, "headers": headers}
 
 
@@ -102,7 +122,7 @@ async def make_org(client: httpx.AsyncClient, owner: dict[str, Any], *, live: bo
     assert r.status_code == 201, r.text
     org = r.json()
     if live:
-        await sql("UPDATE organisations SET live_enabled=1, kyb_status='approved' WHERE id=:o", o=org["id"])
+        await sql("UPDATE organisations SET live_enabled=TRUE, kyb_status='approved' WHERE id=:o", o=org["id"])
     keys: dict[str, str] = {}
     for env in (["test", "live"] if live else ["test"]):
         k = await client.post(f"/api/v1/business/organisations/{org['id']}/api-keys", json={"env": env},

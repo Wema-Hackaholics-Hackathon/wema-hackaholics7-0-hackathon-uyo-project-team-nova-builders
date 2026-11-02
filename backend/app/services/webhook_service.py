@@ -167,7 +167,7 @@ async def attempt(db: AsyncSession, d: WebhookDelivery, client: httpx.AsyncClien
 
 async def deliver_due(session_factory: Any) -> int:
     async with session_factory() as db:
-        now = utcnow().replace(tzinfo=None)
+        now = utcnow()
         due = (await db.exec(
             select(WebhookDelivery)
             .where(WebhookDelivery.status == "pending", WebhookDelivery.next_attempt_at <= now)

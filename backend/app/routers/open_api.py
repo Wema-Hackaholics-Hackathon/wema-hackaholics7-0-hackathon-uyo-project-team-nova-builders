@@ -29,7 +29,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.config import get_db
 from app.core.api_auth import ApiContext, get_api_context, rate_limit_key
 from app.core.api_errors import ApiError
-from app.core.crypto import new_token, sha256_hex
+from app.core.crypto import encrypt_str, new_token, sha256_hex
 from app.models import CheckResult, Credential, IdempotencyRecord, Notification, Subject, SubjectFace, Verification
 from app.services import checks_service as cs
 from app.services import consent_service as consent
@@ -161,15 +161,15 @@ async def create_verification(request: Request, body: CreateVerification, ctx: C
         v = Verification(
             org_id=ctx.org.id, env=ctx.env, subject_id=subject.id, checks=list(body.checks),
             scopes=cs.scopes_for_checks(list(body.checks), list(body.scopes)), purpose=body.purpose,
-            session_token_hash=sha256_hex(token), return_url=body.return_url, metadata_=body.metadata,
+            session_token_hash=sha256_hex(token), session_token_enc=encrypt_str(token),
+            return_url=body.return_url, metadata_=body.metadata,
             expires_at=cs.verification_expiry(),
         )
         db.add(v)
         cs.audit(db, org_id=ctx.org.id, actor_type="api_key", actor_id=ctx.key.id,
                  action="verification.created", target_type="verification", target_id=v.id)
         await db.flush()
-        out = await cs.serialize_verification(db, v, subject, include_token_url=cs.hosted_url(token))
-        out["client_token"] = token
+        out = await cs.serialize_verification(db, v, subject, include_link=True)
         await db.commit()
         return 201, out
 
@@ -188,14 +188,15 @@ async def list_verifications(
     if customer_ref:
         q = q.join(Subject, Subject.id == Verification.subject_id).where(Subject.customer_ref == customer_ref)  # pyright: ignore[reportArgumentType]
     rows = (await db.exec(q.order_by(Verification.created_at.desc()).offset(offset).limit(min(limit, 100)))).all()  # pyright: ignore[reportAttributeAccessIssue]
-    data = [await cs.serialize_verification(db, v, await db.get(Subject, v.subject_id)) for v in rows]
+    data = [await cs.serialize_verification(db, v, await db.get(Subject, v.subject_id), include_link=True)
+            for v in rows]
     return {"object": "list", "data": data, "has_more": len(rows) == min(limit, 100)}
 
 
 @router.get("/verifications/{verification_id}")
 async def get_verification(verification_id: str, ctx: Ctx, db: Db) -> dict[str, Any]:
     v = await _get_verification(db, ctx, verification_id)
-    return await cs.serialize_verification(db, v, await db.get(Subject, v.subject_id))
+    return await cs.serialize_verification(db, v, await db.get(Subject, v.subject_id), include_link=True)
 
 
 @router.post("/verifications/{verification_id}/cancel")

@@ -24,16 +24,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.config import get_settings
 from app.core.api_errors import ApiError
-from app.core.crypto import mask, pii_hash
+from app.core.cascade import delete_cascade
+from app.core.crypto import decrypt_str, mask, pii_hash
 from app.models import (
     AuditLog,
     CheckResult,
-    ConsentGrant,
     Organisation,
     Subject,
-    SubjectFace,
     UsageEvent,
-    UsedLivenessNonce,
     Verification,
     WebhookDelivery,
 )
@@ -384,8 +382,19 @@ async def serialize_subject(db: AsyncSession, s: Subject) -> dict[str, Any]:
     return out
 
 
+def open_link(v: Verification) -> dict[str, str] | None:
+    """hosted_url + client_token while the verification can still be completed; else None."""
+    if v.session_token_enc is None or v.status not in ("pending", "in_progress"):
+        return None
+    if (as_utc(v.expires_at) or utcnow()) < utcnow():
+        return None
+    token = decrypt_str(v.session_token_enc)
+    return {"hosted_url": hosted_url(token), "client_token": token}
+
+
 async def serialize_verification(db: AsyncSession, v: Verification, subject: Subject | None,
-                                 include_token_url: str | None = None) -> dict[str, Any]:
+                                 include_link: bool = False) -> dict[str, Any]:
+    """include_link: add hosted_url/client_token (business-facing reads only — never in webhooks)."""
     scopes = await granted_scopes(db, v.org_id, v.subject_id)
     c_status = await consent_status(db, v.org_id, v.subject_id)
     latest = await latest_results(db, v.id)
@@ -417,8 +426,8 @@ async def serialize_verification(db: AsyncSession, v: Verification, subject: Sub
         "completed_at": iso(v.completed_at),
         "created_at": iso(v.created_at),
     }
-    if include_token_url:
-        out["hosted_url"] = include_token_url
+    if include_link:
+        out.update(open_link(v) or {"hosted_url": None, "client_token": None})
     return out
 
 
@@ -438,24 +447,20 @@ async def org_branding(db: AsyncSession, org_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 async def erase_subject(db: AsyncSession, subject: Subject) -> None:
-    """Delete a subject and everything hanging off it (explicit: SQLite doesn't enforce FK cascades)."""
-    for model in (CheckResult, ConsentGrant, SubjectFace, Verification, UsedLivenessNonce):
-        rows = (await db.exec(select(model).where(model.subject_id == subject.id))).all()  # pyright: ignore[reportAttributeAccessIssue]
-        for row in rows:
-            await db.delete(row)
+    """Delete a subject and everything hanging off it (see core/cascade.py)."""
     pending = (await db.exec(select(WebhookDelivery).where(
         WebhookDelivery.subject_id == subject.id, WebhookDelivery.status == "pending"))).all()
     for d in pending:
         d.status, d.last_error = "cancelled", "subject deleted"
         db.add(d)
     await db.flush()
-    await db.delete(subject)
+    await delete_cascade(db, "subjects", [subject.id])
 
 
 async def expire_stale_verifications(session_factory: Any) -> int:
     """Mark unfinished verifications past their expiry as expired and tell the business."""
     async with session_factory() as db:
-        now = utcnow().replace(tzinfo=None)
+        now = utcnow()
         rows = (await db.exec(select(Verification).where(
             Verification.status.in_(("pending", "in_progress")),  # pyright: ignore[reportAttributeAccessIssue]
             Verification.expires_at < now,

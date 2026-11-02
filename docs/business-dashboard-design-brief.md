@@ -90,6 +90,7 @@ Filters: status, outcome, date. Row → detail.
 
 ### 3.4 Verification detail — `GET …/verifications/{id}`
 - Header: person, `customer_ref`, status + outcome, created/completed/expires.
+- While open (`hosted_url` not null): **Copy link** / **Show QR** / **Resend** actions for the hosted page.
 - **Check cards** (one per `results[check]`):
   - NIN / BVN: method (number / document scan + `document_type`), last 4, name match ✓/✗ + `name_score`,
     DOB match, record name/DOB, `reasons` in plain language, attempts.

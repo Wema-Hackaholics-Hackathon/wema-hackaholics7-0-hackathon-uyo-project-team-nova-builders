@@ -167,6 +167,12 @@ async def test_hosted_flow_end_to_end(client: httpx.AsyncClient, stub_face_verif
     assert v["hosted_url"].endswith(v["client_token"]) and v["status"] == "pending"
     hs = f"/api/v1/hosted/sessions/{v['client_token']}"
 
+    # the link can be fetched again while the verification is open
+    again = (await client.get(f"{OPEN}/verifications/{v['id']}", headers=org["h"]["test"])).json()
+    assert again["hosted_url"] == v["hosted_url"] and again["client_token"] == v["client_token"]
+    raw = await sql("SELECT session_token_enc FROM verifications WHERE id=:i", i=v["id"])
+    assert v["client_token"] not in raw[0][0]   # stored encrypted
+
     s = (await client.get(hs)).json()
     assert s["business"]["name"] == org["name"] and [x["type"] for x in s["steps"]] == ["nin", "liveness"]
 
@@ -189,7 +195,7 @@ async def test_hosted_flow_end_to_end(client: httpx.AsyncClient, stub_face_verif
 
     got = (await client.get(f"{OPEN}/verifications/{v['id']}", headers=org["h"]["test"])).json()
     assert got["results"]["nin"]["status"] == "passed" and got["results"]["liveness"]["status"] == "passed"
-    assert "hosted_url" not in got
+    assert got["hosted_url"] is None and got["client_token"] is None   # closed → link no longer offered
 
     assert await deliver_webhooks() >= 1
     events = webhook_sink.events()
