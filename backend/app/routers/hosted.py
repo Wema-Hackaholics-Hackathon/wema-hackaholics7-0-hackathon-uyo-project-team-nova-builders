@@ -9,7 +9,7 @@ Order enforced by the server:
   POST /consent {accept}      must come first; creates the consent grant (or declines)
   POST /share-foid            optional, FOID Bearer: reuse what FOID already verified
   POST /nin | /nin-document | /bvn
-  POST /liveness/start → /liveness/{id}/frame → /liveness/{id}/complete
+  POST /liveness/start → frames to /api/v1/liveness/sessions/{id}/frame (no DB per frame) → /liveness/{id}/complete
   POST /finish                closes the verification, notifies the business, returns redirect
 """
 
@@ -184,9 +184,9 @@ async def share_foid(token: str, user: Annotated[User, Depends(get_current_user)
     reused: list[str] = []
 
     if "nin" in v.checks and "nin" not in latest and claims.get("nin_verified"):
-        subject.nin_hash, subject.nin_last4, subject.nin_verified = user.nin_hash, user.nin[-4:], True
+        subject.nin_hash, subject.nin_last4, subject.nin_verified = user.nin_hash, user.nin_last4, True
         await cs.save_result(db, subject=subject, check_type="nin", status="passed", reasons=[],
-                             data={"source": "foid_credential", "nin_last4": user.nin[-4:]},
+                             data={"source": "foid_credential", "nin_last4": user.nin_last4},
                              provider="foid", verification_id=v.id)
         reused.append("nin")
 
@@ -277,13 +277,6 @@ async def liveness_start(request: Request, token: str, db: Db) -> dict[str, Any]
         "instructions": [ls.CHALLENGE_PROMPTS.get(c, c) for c in run.challenges],
         "expires_at": cs.iso(datetime.fromtimestamp(run.expires_at, tz=timezone.utc)),
     }
-
-
-@router.post("/liveness/{session_id}/frame")
-async def liveness_frame(token: str, session_id: str, request: Request, db: Db) -> dict[str, Any]:
-    _v, subject = await _load_open(db, token)
-    run = ls.get_session(session_id, f"subject:{subject.id}")
-    return await ls.process_frame(run, await request.body())
 
 
 @router.post("/liveness/{session_id}/complete")

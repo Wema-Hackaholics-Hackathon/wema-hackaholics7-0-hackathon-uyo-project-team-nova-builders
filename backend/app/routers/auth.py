@@ -24,7 +24,9 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession  # has .exec() unlike sqlalchemy's AsyncSession
 
 from app.config import get_db, get_settings
-from app.core.crypto import pii_hash
+from app.services import user_identity
+from app.services.identity import ProviderUnavailable
+from app.services.user_identity import set_nin
 from app.core.dependencies import get_current_user, require_verified_email
 from app.core.security import (
     create_access_token,
@@ -50,6 +52,7 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
+    NinVerifyRequest,
     PhoneRequest,
     PROOF_OF_ADDRESS_ALLOWED_MIME,
     RefreshRequest,
@@ -184,11 +187,10 @@ async def signup(
         first_name=body.first_name,
         last_name=body.last_name,
         middle_name=body.middle_name,
-        nin=body.nin,
-        nin_hash=pii_hash(body.nin),
         email=body.email,
         hashed_password=hashed,
     )
+    set_nin(user, body.nin)   # encrypted + keyed hash + last 4 — never stored in plain text
     db.add(user)
     await db.flush()  # assigns user.id without committing; still inside the transaction
 
@@ -242,11 +244,18 @@ async def login(
     result = await db.exec(select(User).where(User.email == body.email))
     user = result.first()
 
-    # Constant-time-ish: always verify even if user not found to prevent timing attacks
-    if user is None or not verify_password(body.password, user.hashed_password):
+    # Product decision: tell the user which part is wrong. This reveals whether an
+    # email is registered (account enumeration); the 10/minute rate limit above is
+    # the mitigation.
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account exists with this email address",
+        )
+    if not verify_password(body.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Incorrect password",
         )
 
     access_token = create_access_token(user.id)
@@ -365,10 +374,70 @@ async def me(
         avatar_url=user.avatar_url,
         liveness_selfie_url=user.liveness_selfie_url,
         liveness_verified_at=user.liveness_verified_at,
+        date_of_birth=user.date_of_birth,
+        nin_verified_at=user.nin_verified_at,
+        identity_locked=user.identity_locked,
         email=user.email,
         created_at=user.created_at,
         email_verified=email_verified,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /auth/me/nin/verify  — check the NIN against the registry (paid lookup)
+# ---------------------------------------------------------------------------
+
+_NIN_REASON_TEXT = {
+    "not_found": "We couldn't find a record for your NIN. Check the number you signed up with.",
+    "name_mismatch": "The name on your account doesn't match your NIN record. Enter it exactly as on your NIN slip.",
+    "dob_mismatch": "The date of birth doesn't match your NIN record.",
+    "no_nin_on_account": "There is no NIN on your account.",
+}
+
+
+@router.post("/me/nin/verify", response_model=UserOut)
+@limiter.limit("5/hour")  # pyright: ignore[reportUnknownMemberType, reportUntypedFunctionDecorator]
+async def verify_my_nin(
+    request: Request,  # pyright: ignore[reportUnusedParameter] — slowapi requires this name
+    body: NinVerifyRequest,
+    current_user: Annotated[User, Depends(require_verified_email)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserOut:
+    """Confirm names + date of birth and verify them against the NIN record.
+
+    Order of checks keeps the paid lookup for real, engaged users: verified email
+    (dependency) → liveness passed → not already verified → daily attempt limit
+    → NIN not already verified on another account → registry lookup.
+    On a match the names and date of birth lock.
+    """
+    if current_user.identity_locked:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Your NIN is already verified — your identity is locked")
+    if current_user.liveness_verified_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Complete the liveness check before verifying your NIN")
+    if await user_identity.attempts_today(db, current_user) >= user_identity.MAX_ATTEMPTS_PER_DAY:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            "Too many NIN verification attempts today. Try again tomorrow.")
+    if await user_identity.nin_taken_by_other(db, current_user):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "This NIN is already verified on another FOID account. Contact support.")
+
+    # Names/DOB are still editable at this point (identity not locked yet).
+    current_user.first_name = body.first_name
+    current_user.middle_name = body.middle_name
+    current_user.last_name = body.last_name
+    current_user.date_of_birth = body.date_of_birth
+    db.add(current_user)
+    try:
+        result = await user_identity.verify_nin(db, current_user)
+    except ProviderUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "NIN verification is temporarily unavailable. Please try again later.") from exc
+    await db.commit()
+    if not result.verified:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            " ".join(_NIN_REASON_TEXT.get(r, r) for r in result.reasons))
+    await db.refresh(current_user)
+    return await me(current_user, db)
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +520,7 @@ async def identity_summary(
 
     claims: dict[str, object] = dict(cred.claims) if cred else {}
 
-    nin_masked   = ("****" + current_user.nin[-4:])  if len(current_user.nin or "") >= 4 else "****"
+    nin_masked   = ("****" + current_user.nin_last4) if current_user.nin_last4 else "****"
     bvn_masked   = ("****" + (current_user.bvn or "")[-4:]) if current_user.bvn else "Not submitted"
     phone_masked = (current_user.phone[:4] + "****" + current_user.phone[-2:]) if current_user.phone else "Not submitted"
 

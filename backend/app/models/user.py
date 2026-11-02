@@ -31,10 +31,17 @@ class User(SQLModel, table=True):
     first_name: str
     last_name: str
     middle_name: str | None = Field(default=None)
-    # Nigerian National Identification Number — required at signup
-    nin: str = Field(index=True)
-    # Keyed hash of the NIN (app.core.crypto.pii_hash) — used to match business subjects
+    # Nigerian National Identification Number — collected at signup, stored ENCRYPTED.
+    # Set it only via app.services.user_identity.set_nin(). Never store or log it in plain text.
+    nin_enc: str | None = Field(default=None)              # Fernet ciphertext (DATA_ENCRYPTION_KEY)
+    nin_last4: str | None = Field(default=None)            # for display ("*******8901")
+    # Keyed hash of the NIN (app.core.crypto.pii_hash) — lookups/matching without decrypting
     nin_hash: str | None = Field(default=None, index=True)
+    # Collected during NIN verification (not at signup); YYYY-MM-DD
+    date_of_birth: str | None = Field(default=None)
+    # Set when the NIN was checked against the registry and name + DOB matched.
+    # From then on first/middle/last name and date of birth are locked.
+    nin_verified_at: datetime | None = Field(default=None)
     # Bank Verification Number — collected at KYC (optional until verified)
     bvn: str | None = Field(default=None, index=True)
     # Phone number — collected post-signup (optional until verified)
@@ -55,6 +62,17 @@ class User(SQLModel, table=True):
     # Admin flag — only True for platform staff; set directly in the DB or via seeding
     is_admin: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_now)
+
+    # ── Derived, read-only ─────────────────────────────────────────────────
+    @property
+    def nin(self) -> str:
+        """Masked NIN for display/API output — the full number is never exposed."""
+        return f"*******{self.nin_last4}" if self.nin_last4 else ""
+
+    @property
+    def identity_locked(self) -> bool:
+        """Names and date of birth can't change once the NIN has been verified."""
+        return self.nin_verified_at is not None
 
     # ── Relationships (navigate from User → children) ──────────────────────
     # Use lazy="selectin" so async sessions can load these without extra awaits.

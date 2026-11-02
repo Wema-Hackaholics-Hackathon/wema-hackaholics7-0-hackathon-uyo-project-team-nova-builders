@@ -80,7 +80,10 @@ class UserOut(BaseModel):
     first_name: str
     last_name: str
     middle_name: str | None
-    nin: str
+    nin: str                                   # masked, e.g. "*******8901" — never the full NIN
+    date_of_birth: str | None = None
+    nin_verified_at: datetime | None = None
+    identity_locked: bool = False              # names + DOB can't change after NIN verification
     bvn: str | None
     phone: str | None
     address: str | None
@@ -92,6 +95,32 @@ class UserOut(BaseModel):
     created_at: datetime
     # Derived from credential claims — True once POST /auth/verify-email succeeds
     email_verified: bool = False
+
+
+class NinVerifyRequest(BaseModel):
+    """Names exactly as on the NIN record, plus date of birth (collected here, not at signup)."""
+    first_name: str
+    middle_name: str | None = None
+    last_name: str
+    date_of_birth: str      # YYYY-MM-DD
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def required_name(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Name cannot be blank")
+        return v.strip()
+
+    @field_validator("middle_name")
+    @classmethod
+    def optional_name(cls, v: str | None) -> str | None:
+        return v.strip() or None if v is not None else None
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def valid_dob(cls, v: str) -> str:
+        from app.services.user_identity import validate_dob
+        return validate_dob(v.strip())
 
 
 class BvnRequest(BaseModel):

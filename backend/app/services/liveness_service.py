@@ -6,8 +6,9 @@ on the device can be faked).  The flow mirrors face-liveness/demo/server.mjs:
   1. start_session()  → the server issues a signed ticket (it fixes the challenges)
                         and builds an Engine from it.  The ticket never leaves
                         the server; the client only gets the nonce + challenges.
-  2. process_frame()  → the client streams JPEG frames; each is decoded and fed to
-                        the engine with the SERVER clock as timestamp.
+  2. process_frame()  → the client streams raw RGBA frames (canvas ImageData, like
+                        face-liveness/demo); each is fed to the engine with the
+                        SERVER clock as timestamp.
   3. once done        → the engine signs a receipt (Ed25519 JWT) recording the
                         outcome and the SHA-256 of the captured face PNG.
 
@@ -24,7 +25,6 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Literal
 
-import cv2
 import faceliveness
 import numpy as np
 from fastapi import HTTPException, status
@@ -42,7 +42,6 @@ _TICKET_TTL_SECS = 120
 _SESSION_TTL_SECS = 180
 _MAX_SESSIONS = 50
 _MAX_FRAME_SIDE = 1280
-_MAX_FRAME_BYTES = 2 * 1024 * 1024
 
 CHALLENGE_PROMPTS: dict[str, str] = {
     "blink": "Blink",
@@ -156,6 +155,18 @@ def get_session(nonce: str, user_id: str) -> LivenessRun:
     return run
 
 
+def get_session_by_nonce(nonce: str) -> LivenessRun:
+    """For the frame endpoint: the unguessable nonce IS the credential (as in demo/server.mjs),
+    so frames need no login lookup and no database access."""
+    run = _sessions.get(nonce)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Liveness session not found or expired — start a new check",
+        )
+    return run
+
+
 def end_session(nonce: str) -> None:
     _sessions.pop(nonce, None)
 
@@ -164,29 +175,23 @@ def end_session(nonce: str) -> None:
 # Frame processing
 # ---------------------------------------------------------------------------
 
-def _decode_jpeg(data: bytes) -> np.ndarray:
-    if not data or len(data) > _MAX_FRAME_BYTES:
+def _rgba_frame(data: bytes, width: int, height: int) -> np.ndarray:
+    """Raw RGBA pixels (canvas ImageData), exactly what face-liveness/demo sends."""
+    if not (16 <= width <= _MAX_FRAME_SIDE and 16 <= height <= _MAX_FRAME_SIDE):
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Frame missing or too large",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Frame size must be between 16 and {_MAX_FRAME_SIDE}px",
         )
-    frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
-    if frame is None:
+    if len(data) != width * height * 4:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Frame is not a valid image",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Expected {width * height * 4} bytes of RGBA for {width}x{height}, got {len(data)}",
         )
-    h, w = frame.shape[:2]
-    if max(h, w) > _MAX_FRAME_SIDE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Frame larger than {_MAX_FRAME_SIDE}px",
-        )
-    return frame
+    return np.frombuffer(data, dtype=np.uint8).reshape(height, width, 4)
 
 
 def _run_engine(run: LivenessRun, frame: np.ndarray, timestamp_ms: int) -> dict[str, object]:
-    result = run.engine.process(frame, timestamp_ms, format="bgr")
+    result = run.engine.process(frame, timestamp_ms, format="rgba")
     state: dict[str, object] = {
         "status": result.status,
         "done": result.done,
@@ -194,6 +199,7 @@ def _run_engine(run: LivenessRun, frame: np.ndarray, timestamp_ms: int) -> dict[
         "remaining": result.remaining,
         "fail_reason": result.fail_reason,
         "face_count": result.face_count,
+        "actions": list(result.actions),
     }
     if result.done:
         capture = run.engine.capture
@@ -214,8 +220,8 @@ def _run_engine(run: LivenessRun, frame: np.ndarray, timestamp_ms: int) -> dict[
     return state
 
 
-async def process_frame(run: LivenessRun, data: bytes) -> dict[str, object]:
-    """Feed one JPEG frame to the session's engine (one frame at a time per session)."""
+async def process_frame(run: LivenessRun, data: bytes, width: int, height: int) -> dict[str, object]:
+    """Feed one raw RGBA frame to the session's engine (one frame at a time per session)."""
     if run.final is not None:
         return run.last
     if run.lock.locked():
@@ -224,7 +230,7 @@ async def process_frame(run: LivenessRun, data: bytes) -> dict[str, object]:
             detail="Previous frame still processing",
         )
     async with run.lock:
-        frame = _decode_jpeg(data)
+        frame = _rgba_frame(data, width, height)
         # Server clock, never the client's — a client can't fake timing this way.
         timestamp_ms = int((time.monotonic() - run.started) * 1000)
         run.last = await run_in_threadpool(_run_engine, run, frame, timestamp_ms)

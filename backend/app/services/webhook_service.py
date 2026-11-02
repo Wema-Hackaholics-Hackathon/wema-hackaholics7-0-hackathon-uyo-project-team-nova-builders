@@ -1,8 +1,9 @@
 """Business webhooks — signed, retried, and consent-aware.
 
 enqueue_event()  writes one WebhookDelivery per matching endpoint (caller commits).
-deliver_due()    sends due deliveries; run every few seconds by webhook_loop()
-                 (started from main.py's lifespan).
+deliver_due()    sends due deliveries; webhook_loop() (started from main.py's
+                 lifespan) runs it when an event is queued, and once a minute
+                 for retries — it does not poll the database while idle.
 
 Signature header (verify on the business side):
     FOID-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, f"{t}.{raw_body}")>
@@ -45,6 +46,18 @@ _ALWAYS_DELIVER = {"consent.revoked", "webhook.test"}
 _BACKOFF_SECS = [10, 30, 120, 600, 1800, 3600, 3 * 3600, 6 * 3600]
 _TIMEOUT_SECS = 10
 _BATCH = 20
+_IDLE_CHECK_SECS = 60      # retries due later are picked up at least this often
+
+# Set whenever an event is queued, so the sender wakes immediately instead of
+# polling the database every few seconds while idle.
+_wake: asyncio.Event | None = None
+
+
+def _wake_event() -> asyncio.Event:
+    global _wake
+    if _wake is None:
+        _wake = asyncio.Event()
+    return _wake
 
 
 def new_client() -> httpx.AsyncClient:
@@ -99,6 +112,7 @@ async def enqueue_event(
                 subject_id=subject_id,
                 payload=event,
             ))
+            _wake_event().set()
     return event["id"]
 
 
@@ -186,10 +200,17 @@ async def deliver_due(session_factory: Any) -> int:
 async def webhook_loop() -> None:
     from app.config import _get_session_factory
 
+    wake = _wake_event()
     await asyncio.sleep(5)
     while True:
         try:
             await deliver_due(_get_session_factory())
         except Exception as exc:   # never let the loop die
             print(f"[webhooks] error: {exc}", flush=True)
-        await asyncio.sleep(3)
+        # Sleep until something is queued (or the idle check for scheduled retries).
+        try:
+            await asyncio.wait_for(wake.wait(), timeout=_IDLE_CHECK_SECS)
+        except TimeoutError:
+            pass
+        wake.clear()
+        await asyncio.sleep(1)   # let the request that queued the event commit first

@@ -5,8 +5,8 @@ Built on the faceliveness SDK (engine runs on this server) and SFace:
   1. POST /start                  {purpose: "enrol"|"verify", consent}
        → server issues a signed ticket (kept server-side) and returns the
          nonce + challenges the user must perform
-  2. POST /{nonce}/frame          body: image/jpeg
-       → one frame at a time; returns the current challenge / outcome
+  2. POST /api/v1/liveness/sessions/{nonce}/frame?w=&h=   (routers/liveness_public.py)
+       → raw RGBA frames; the nonce is the credential, so no DB work per frame
   3. POST /{nonce}/complete
        enrol  → verify_face_record + replay check → embed → store encrypted
                 template → identity_verified=True (+ notification)
@@ -16,6 +16,11 @@ Built on the faceliveness SDK (engine runs on this server) and SFace:
   GET    /status      → { enrolled, verified_at, quality }
   GET    /face        → the user's own stored face-record PNG
   DELETE /enrolment   → delete template + face (right to erasure)
+
+  Continue on another device:
+  POST   /handoff              {purpose, consent} → { handoff_id, url, expires_at }  (QR / link, 10 min, single use)
+  GET    /handoff/{id}         → status the laptop polls until the phone finishes
+  DELETE /handoff/{id}         → cancel the link
 
 Sessions are in-memory: run a single uvicorn worker.
 """
@@ -37,6 +42,7 @@ from app.core.dependencies import get_current_user, require_verified_email
 from app.models import Credential, FaceEnrolment, LivenessAttempt, Notification, User
 from app.services import face_match_service as fm
 from app.services import liveness_service as ls
+from app.services import liveness_handoff as handoffs
 from app.services.subject_link_service import link_subjects_for_user
 from app.utils.limiter import limiter
 
@@ -66,18 +72,10 @@ class StartResponse(BaseModel):
     expires_at: datetime
 
 
-class FrameResponse(BaseModel):
-    status: str                     # in_progress | passed | failed
-    done: bool
-    current_challenge: str | None
-    remaining: int
-    fail_reason: str | None
-    face_count: int
-
-
 class CompleteResponse(BaseModel):
     purpose: str
     passed: bool
+    fail_reason: str | None = None
     enrolled: bool = False
     matched: bool | None = None
     score: float | None = None
@@ -164,18 +162,6 @@ async def start_liveness(
     )
 
 
-@router.post("/{session_id}/frame", response_model=FrameResponse)
-async def submit_frame(
-    session_id: str,
-    request: Request,
-    current_user: Annotated[User, Depends(get_current_user)],
-) -> FrameResponse:
-    """Process one JPEG frame (raw request body)."""
-    run = ls.get_session(session_id, current_user.id)
-    state = await ls.process_frame(run, await request.body())
-    return FrameResponse.model_validate(state)
-
-
 @router.post("/{session_id}/complete", response_model=CompleteResponse)
 async def complete_liveness(
     session_id: str,
@@ -183,7 +169,21 @@ async def complete_liveness(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CompleteResponse:
     """Finalise a finished session: enrol the face or match it 1:1."""
-    run = ls.get_session(session_id, current_user.id)
+    return await finish_run(db, current_user, ls.get_session(session_id, current_user.id))
+
+
+FAIL_TEXT = {
+    "timeout": "The check took too long.",
+    "step_timeout": "That step wasn't completed in time.",
+    "face_lost": "Your face left the camera view.",
+    "multiple_faces": "More than one face was in view.",
+    "spoof_suspected": "The image looked like a photo or screen.",
+}
+
+
+async def finish_run(db: AsyncSession, current_user: User, run: ls.LivenessRun) -> CompleteResponse:
+    """Shared by this router and the phone handoff (routers/liveness_public.py)."""
+    session_id = run.nonce
     final = run.final
     if final is None:
         raise HTTPException(
@@ -201,7 +201,8 @@ async def complete_liveness(
         return CompleteResponse(
             purpose=run.purpose,
             passed=False,
-            message=f"Liveness check failed: {final.fail_reason or 'no face captured'}",
+            fail_reason=final.fail_reason,
+            message=FAIL_TEXT.get(final.fail_reason or "", "No face was captured — try again in good light."),
         )
 
     accepted = await fm.accept_face_record(
@@ -332,3 +333,59 @@ async def delete_enrolment(
     db.add(current_user)
     await _set_identity_claim(current_user, False, db)
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Continue on another device (QR code / link)
+# ---------------------------------------------------------------------------
+
+class HandoffResponse(BaseModel):
+    handoff_id: str
+    url: str
+    expires_at: int          # unix seconds
+    seconds_left: int
+
+
+class HandoffStatusResponse(BaseModel):
+    status: str              # pending | in_progress | completed | expired | cancelled
+    purpose: str
+    expires_at: int
+    seconds_left: int
+    result: dict[str, object] | None = None
+
+
+@router.post("/handoff", response_model=HandoffResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
+async def create_handoff(
+    request: Request,  # required by slowapi
+    body: StartRequest,
+    current_user: Annotated[User, Depends(require_verified_email)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> HandoffResponse:
+    """A single-use, 10-minute link to finish this check on a phone (no login there)."""
+    if body.purpose == "enrol" and not body.consent:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Consent to process your face data is required")
+    if body.purpose == "verify" and await _get_enrolment(current_user.id, db) is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No face enrolled yet — complete identity liveness first")
+    handoff, url = handoffs.create(current_user.id, body.purpose, body.consent)
+    view = handoffs.public_view(handoff)
+    return HandoffResponse(handoff_id=handoff.id, url=url, expires_at=view["expires_at"],
+                           seconds_left=view["seconds_left"])
+
+
+@router.get("/handoff/{handoff_id}", response_model=HandoffStatusResponse)
+async def handoff_status(
+    handoff_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> HandoffStatusResponse:
+    return HandoffStatusResponse.model_validate(handoffs.public_view(handoffs.get_for_user(handoff_id, current_user.id)))
+
+
+@router.delete("/handoff/{handoff_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_handoff(
+    handoff_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    handoff = handoffs.get_for_user(handoff_id, current_user.id)
+    if handoff.status in ("pending", "in_progress"):
+        handoff.status = "cancelled"

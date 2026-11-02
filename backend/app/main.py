@@ -8,7 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from .config import check_db, get_settings, init_db
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+from .config import _get_engine, check_db, get_settings, init_db
+from .core.schema_check import check_schema, has_table
 from .core.api_errors import ApiError, api_error_handler
 from .routers import *
 from .services.webhook_service import webhook_loop
@@ -41,6 +45,8 @@ async def _liveness_sweep_loop() -> None:
     while True:
         await asyncio.sleep(60)
         removed = sweep_expired()
+        from .services.liveness_handoff import sweep as sweep_handoffs
+        sweep_handoffs()
         if removed:
             print(f"[liveness] swept {removed} expired session(s)", flush=True)
         try:
@@ -92,11 +98,20 @@ async def _enable_wal_mode() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    engine = _get_engine()
+    was_empty = not await has_table(engine, "users")
     await init_db()
     await _enable_wal_mode()
+    schema = await check_schema(engine, was_empty=was_empty)
+    _app.state.schema_error = schema.message
     db_ok = await check_db()
     redis_ok = await redis_ping()
-    print(f"  Database : {'✓ connected' if db_ok else '✗ unreachable'}")
+    print(f"  Database : {'✓ connected' if db_ok else '✗ unreachable'} ({get_settings().DATABASE_URL})")
+    if schema.ok:
+        print(f"  Schema   : ✓ {schema.db_revision}")
+    else:
+        print("\n" + "!" * 78 + f"\n  {schema.message}\n  API requests will return 503 until this is done.\n" + "!" * 78 + "\n",
+              flush=True)
     print(f"  Redis    : {'✓ connected' if redis_ok else '✗ unreachable (cache disabled)'}")
     await _warm_liveness()
     cleanup_task = asyncio.create_task(_token_cleanup_loop())
@@ -118,6 +133,22 @@ app.add_exception_handler(
     _rate_limit_exceeded_handler,  # pyright: ignore[reportArgumentType]
 )
 
+app.state.schema_error = None
+
+
+@app.middleware("http")
+async def schema_guard(request: Request, call_next):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+    """Un-migrated database → clear 503 instead of opaque 500s (see core/schema_check.py).
+
+    Registered before CORS, so the 503 still carries CORS headers and the
+    browser shows the message instead of a network error.
+    """
+    message = getattr(request.app.state, "schema_error", None)
+    if message and request.url.path.startswith("/api"):
+        return JSONResponse(status_code=503, content={"detail": message})
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS.split(","),
@@ -136,9 +167,11 @@ async def read_root():
 async def health_check():
     """Health check endpoint for production monitoring."""
     ok = await check_db()
-    if ok:
-        return {"status": "healthy", "database": "connected"}
-    return {"status": "unhealthy", "database": "unreachable"}
+    schema_error = getattr(app.state, "schema_error", None)
+    if ok and not schema_error:
+        return {"status": "healthy", "database": "connected", "schema": "up to date"}
+    return {"status": "unhealthy", "database": "connected" if ok else "unreachable",
+            "schema": schema_error or "unknown"}
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +188,7 @@ v1_router.include_router(consents_router)
 v1_router.include_router(credentials_router)
 v1_router.include_router(ledger_router)
 v1_router.include_router(liveness_router)
+v1_router.include_router(liveness_public_router)
 v1_router.include_router(notifications_router)
 v1_router.include_router(reports_router)
 v1_router.include_router(wallet_router)
