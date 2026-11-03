@@ -368,9 +368,10 @@ async def serialize_subject(db: AsyncSession, s: Subject) -> dict[str, Any]:
         "has_foid_account": s.user_id is not None,
         "created_at": iso(s.created_at),
     }
+    if "profile" in scopes or "identity" in scopes:
+        out.update({"first_name": s.first_name, "middle_name": s.middle_name, "last_name": s.last_name})
     if "identity" in scopes:
         out.update({
-            "first_name": s.first_name, "middle_name": s.middle_name, "last_name": s.last_name,
             "date_of_birth": s.date_of_birth,
             "nin": {"verified": s.nin_verified, "last4": s.nin_last4},
             "bvn": {"verified": s.bvn_verified, "last4": s.bvn_last4},

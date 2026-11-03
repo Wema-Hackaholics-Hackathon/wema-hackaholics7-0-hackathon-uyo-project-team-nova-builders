@@ -37,6 +37,7 @@ from .email_verification_token import EmailVerificationToken
 from .face_enrolment import FaceEnrolment, LivenessAttempt, UsedLivenessNonce
 from .ledger_entry import LedgerEntry
 from .notification import Notification
+from .oauth import OAuthApp, OAuthClientSecret, OAuthRequest
 from .password_reset_token import PasswordResetToken
 from .refresh_token import RefreshToken
 from .user import User
@@ -47,6 +48,9 @@ from .wallet import Wallet, WalletTransaction
 __all__ = [
     "SQLModel",
     "User",
+    "OAuthApp",
+    "OAuthClientSecret",
+    "OAuthRequest",
     "UserDevice",
     "UserPasskey",
     "RefreshToken",

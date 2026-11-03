@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # Business platform (Open API)
     CONSOLE_URL: str = "http://localhost:5174"      # business console — Bachs returns here after checkout
     PUBLIC_APP_URL: str = "http://localhost:5173"   # base for hosted verification links
+    API_PUBLIC_URL: str = "http://localhost:8000"   # this API's public base — the `aud` of private_key_jwt assertions
     IDENTITY_PROVIDER: Literal["mock"] = "mock"     # NIN/BVN lookups; real adapters plug in here
     DATA_ENCRYPTION_KEY: str = ""       # Fernet key for secrets at rest; derived from SECRET_KEY in dev
     PII_HASH_KEY: str = ""              # HMAC key for NIN/BVN lookup hashes; derived in dev

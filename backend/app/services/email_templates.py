@@ -277,13 +277,14 @@ def console_invite(*, to: str, org_name: str, inviter: str, role: str, link: str
     return subject, _base(preheader=subject, body_html=body).replace("__RECIPIENT__", to)
 
 
-def api_key_alert(*, to: str, org_name: str, actor: str, env: str, key_name: str, hint: str) -> tuple[str, str]:
-    subject = f"New {env} API key created for {org_name}"
+def api_key_alert(*, to: str, org_name: str, actor: str, env: str, key_name: str, hint: str,
+                  what: str = "API key", where: str = "API keys & webhooks") -> tuple[str, str]:
+    subject = f"New {env} {what} created for {org_name}"
     body = (
-        _h1("A new API key was created")
-        + _p(f"<strong>{escape(actor)}</strong> created the {escape(env)} key <strong>{escape(key_name)}</strong> "
-             f"(<code>{escape(hint)}</code>) for {escape(org_name)}.")
-        + _p("If that wasn't expected, revoke it in FOID Console → API keys & webhooks.", muted=True, size=13)
+        _h1(f"A new {escape(what)} was created")
+        + _p(f"<strong>{escape(actor)}</strong> created a {escape(env)} {escape(what)}, <strong>{escape(key_name)}</strong> "
+             f"(<code>{escape(hint)}</code>), for {escape(org_name)}.")
+        + _p(f"If that wasn't expected, revoke it in FOID Console → {escape(where)}.", muted=True, size=13)
     )
     return subject, _base(preheader=subject, body_html=body).replace("__RECIPIENT__", to)
 
@@ -300,5 +301,18 @@ def login_alert(*, to: str, first_name: str, when: str, device: str, ip: str, re
         + _p("If it wasn't, reset your password now and turn on two-factor authentication in Settings.", size=14)
         + _cta_button(reset_url, "Reset my password")
         + _p("You can turn these emails off in Settings → Security → Login alerts.", muted=True, size=13)
+    )
+    return subject, _base(preheader=subject, body_html=body).replace("__RECIPIENT__", to)
+
+
+def oauth_code(*, to: str, otp: str, app_name: str, business: str) -> tuple[str, str]:
+    """'Continue with FOID' — the one-time code typed into the sign-in popup."""
+    subject = f"{otp} is your FOID code for {business}"
+    body = (
+        _h1("Your FOID sign-in code")
+        + _p(f"Use this code to continue to <strong>{escape(app_name)}</strong> ({escape(business)}) with FOID.")
+        + _otp_block(otp)
+        + _p("It expires in 10 minutes. FOID will never ask you for this code by phone or chat.", size=14)
+        + _p("If you didn't try to sign in, ignore this email — nothing is shared without your approval.", muted=True, size=13)
     )
     return subject, _base(preheader=subject, body_html=body).replace("__RECIPIENT__", to)

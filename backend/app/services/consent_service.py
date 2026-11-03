@@ -25,6 +25,7 @@ from app.services.webhook_service import cancel_pending_for_subject, enqueue_eve
 
 # scope → what it unlocks
 SCOPES: dict[str, str] = {
+    "profile": "Your name (first, middle and last)",
     "identity": "NIN / BVN check results and the name & date of birth on record",
     "liveness": "Liveness results and re-verification against the captured face",
     "contact": "Email address and phone number",
@@ -32,6 +33,7 @@ SCOPES: dict[str, str] = {
 }
 
 CHECK_SCOPES: dict[str, str] = {
+    "profile": "Your name (first, middle and last)",
     "nin": "identity",
     "bvn": "identity",
     "liveness": "liveness",

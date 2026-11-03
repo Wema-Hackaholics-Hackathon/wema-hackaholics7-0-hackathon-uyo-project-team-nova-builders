@@ -193,6 +193,8 @@ v1_router.include_router(auth_router)
 v1_router.include_router(account_security_router)
 v1_router.include_router(banks_router)
 v1_router.include_router(business_router)
+v1_router.include_router(oauth_apps_router)
+v1_router.include_router(oauth_router)
 v1_router.include_router(kyb_router)
 v1_router.include_router(console_data_router)
 v1_router.include_router(billing_router)
@@ -211,4 +213,5 @@ v1_router.include_router(reports_router)
 v1_router.include_router(wallet_router)
 
 app.include_router(v1_router)
+app.include_router(oauth_token_router)   # Continue with FOID code exchange: /api/open/v1/oauth/token
 app.include_router(open_api_router)   # public business API: /api/open/v1/*

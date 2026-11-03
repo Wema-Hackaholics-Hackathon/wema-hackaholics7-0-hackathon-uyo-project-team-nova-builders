@@ -22,6 +22,9 @@ from .ledger import router as ledger_router
 from .liveness import router as liveness_router
 from .liveness_public import router as liveness_public_router
 from .notifications import router as notifications_router
+from .oauth import router as oauth_router
+from .oauth_apps import router as oauth_apps_router
+from .oauth_token import router as oauth_token_router
 from .org_admin import public as invites_public_router
 from .org_admin import router as org_admin_router
 from .reports import router as reports_router
@@ -46,6 +49,9 @@ __all__ = [
     "liveness_router",
     "liveness_public_router",
     "notifications_router",
+    "oauth_router",
+    "oauth_apps_router",
+    "oauth_token_router",
     "org_admin_router",
     "invites_public_router",
     "reports_router",

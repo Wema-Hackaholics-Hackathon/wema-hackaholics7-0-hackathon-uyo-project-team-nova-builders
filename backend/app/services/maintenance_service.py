@@ -18,6 +18,7 @@ from app.models import (
     Credential,
     EmailVerificationToken,
     IdempotencyRecord,
+    OAuthRequest,
     Organisation,
     PasswordResetToken,
     RefreshToken,
@@ -49,6 +50,9 @@ async def run_cleanup(db: AsyncSession, now: datetime | None = None) -> dict[str
         or_(col(ConsoleRefreshToken.revoked).is_(True), col(ConsoleRefreshToken.expires_at) < now)))
     counts["console_otps"] = await purge(delete(ConsoleOtp).where(
         or_(col(ConsoleOtp.used).is_(True), col(ConsoleOtp.expires_at) < now)))
+    # Continue with FOID requests: the consent grant is the lasting record; the request is bookkeeping
+    counts["oauth_requests"] = await purge(delete(OAuthRequest).where(
+        col(OAuthRequest.created_at) < now - timedelta(days=7)))
     counts["console_notifications"] = await purge(delete(ConsoleNotification).where(
         col(ConsoleNotification.created_at) < now - timedelta(days=90)))
     counts["api_request_logs"] = await purge(delete(ApiRequestLog).where(
