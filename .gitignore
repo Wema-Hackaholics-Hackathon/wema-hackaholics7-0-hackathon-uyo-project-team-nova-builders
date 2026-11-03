@@ -7,3 +7,4 @@ foid.db*
 liveness_test.html
 open-api-platform-plan.md
 backend/app/data/models/*.onnx
+.qoder

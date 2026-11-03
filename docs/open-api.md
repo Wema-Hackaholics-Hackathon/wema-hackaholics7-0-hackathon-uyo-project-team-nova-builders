@@ -197,6 +197,14 @@ Sandbox (test-mode) subjects are never linked to real FOID accounts automaticall
 
 Configure endpoints per environment in the dashboard (secret shown once; roll any time).
 
+**Allowed URLs.** Live: `https://` only. Test: `http://` or `https://`, plus `http://localhost:<port>` /
+`127.0.0.1` for testing on your own machine (servers with `ENV=production` refuse localhost unless
+`WEBHOOK_ALLOW_LOCALHOST=true`). Never private, link-local, carrier-grade NAT or reserved addresses, internal
+hostnames (`*.internal`, `*.local`, single-label names) or credentials in the URL. FOID re-checks the URL at
+every delivery: it resolves the hostname, refuses it if any address is internal, connects to the checked
+address (the Host header and TLS name stay yours) and doesn't follow redirects. A refused delivery shows
+`blocked: …` as its last error.
+
 Events: `verification.completed`, `verification.cancelled`, `verification.expired`, `check.completed`
 (server-to-server checks), `consent.revoked`, `subject.linked`, `credential.state_changed`, `webhook.test`.
 

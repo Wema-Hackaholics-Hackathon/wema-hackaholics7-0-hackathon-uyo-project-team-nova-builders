@@ -47,6 +47,16 @@ FACE_PNG = (FIXTURES / "astronaut_face_record.png").read_bytes()
 limiter.enabled = False
 
 
+@pytest.fixture(autouse=True)
+def _no_real_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Webhook deliveries resolve the endpoint's hostname; tests must never touch real DNS."""
+    from app.services import webhook_urls
+
+    async def fake_resolve(host: str, port: int) -> list[str]:
+        return ["93.184.216.34"]          # a public address
+    monkeypatch.setattr(webhook_urls, "resolve", fake_resolve)
+
+
 @pytest.fixture(scope="session", autouse=True)
 async def _db() -> None:
     if os.environ.get("FOID_TEST_DATABASE_URL"):   # persistent server DB: start from an empty schema

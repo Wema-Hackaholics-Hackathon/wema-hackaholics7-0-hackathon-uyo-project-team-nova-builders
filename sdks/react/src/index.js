@@ -34,9 +34,10 @@ export function useFoidLogin({ scope = 'profile', nonce, state, codeChallenge, r
   return login
 }
 
-const MARK = createElement('svg', { width: 18, height: 18, viewBox: '0 0 24 24', 'aria-hidden': true },
-  createElement('rect', { width: 24, height: 24, rx: 6, fill: 'currentColor' }),
-  createElement('path', { d: 'M8 6.5h8.5v2.6h-5.6v2.2h4.8v2.5h-4.8v3.7H8z', fill: 'var(--foid-mark-ink, #fff)' }))
+// The FOID mark (two slanted bars), traced from the official logo. Takes the text colour.
+const MARK_PATH = 'M60.9 0.0 59.1 0.0 58.6 0.7 55.7 1.8 7.4 16.4 6.4 17.0 5.6 18.0 3.2 44.2 3.4 46.2 4.4 46.8 30.8 38.8 37.4 35.7 42.9 31.9 46.1 29.2 51.0 23.9 56.4 15.8 57.8 13.1 59.8 7.9 60.9 2.9ZM39.4 40.4 37.8 40.3 4.2 50.6 3.0 51.5 2.3 54.1 0.9 70.9 0.5 72.8 0.0 73.6 0.0 81.2 10.9 77.9 15.9 75.5 21.5 71.8 27.3 66.4 32.2 60.4 36.1 53.6 37.7 50.1 38.9 46.4 39.9 42.0 39.8 40.9Z'
+const MARK = createElement('svg', { height: 18, width: 14, viewBox: '0 0 62 82', 'aria-hidden': true, focusable: 'false' },
+  createElement('path', { d: MARK_PATH, fill: 'currentColor' }))
 
 const LABELS = { continue_with: 'Continue with FOID', signin_with: 'Sign in with FOID', signup_with: 'Sign up with FOID', verify_with: 'Verify with FOID' }
 
@@ -55,7 +56,7 @@ export function ContinueWithFoid({
       padding: '0 18px', borderRadius: 999, font: `600 ${size === 'small' ? 13 : 14.5}px system-ui, sans-serif`,
       cursor: disabled || login.pending ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1,
       border: filled ? 'none' : '1px solid #e4e4e7', background: filled ? '#C800DE' : '#fff',
-      color: filled ? '#fff' : '#18181b', '--foid-mark-ink': filled ? '#C800DE' : '#fff', ...style,
+      color: filled ? '#fff' : '#18181b', ...style,
     },
   }, createElement('span', { style: { color: filled ? '#fff' : '#C800DE', display: 'inline-flex' } }, MARK),
      login.pending ? 'Waiting for FOID…' : LABELS[text] ?? LABELS.continue_with)

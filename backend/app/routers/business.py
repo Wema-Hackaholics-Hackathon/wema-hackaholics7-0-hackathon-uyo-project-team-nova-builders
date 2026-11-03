@@ -48,6 +48,7 @@ from app.services.billing_service import PLANS
 from app.services import consent_service as consent
 from app.services import webhook_service as wh
 from app.services.webhook_service import EVENT_TYPES, attempt, build_event
+from app.services.webhook_urls import check_url
 
 router = APIRouter(prefix="/business", tags=["business-dashboard"])
 
@@ -379,7 +380,7 @@ async def create_webhook(org_id: str, body: WebhookCreate, user: CurrentUser, db
     """Returns the signing secret ONCE (`secret`)."""
     await _member(db, org_id, user, "developer")
     secret = new_token("whsec_", 24)
-    w = WebhookEndpoint(org_id=org_id, env=body.env, url=str(body.url), secret_enc=encrypt_str(secret),
+    w = WebhookEndpoint(org_id=org_id, env=body.env, url=check_url(str(body.url), body.env), secret_enc=encrypt_str(secret),
                         events=_check_events(body.events))
     db.add(w)
     cs.audit(db, org_id=org_id, actor_type="member", actor_id=user.id, action="webhook.created",
@@ -400,7 +401,7 @@ async def update_webhook(org_id: str, webhook_id: str, body: WebhookUpdate, user
     await _member(db, org_id, user, "developer")
     w = await _webhook(db, org_id, webhook_id)
     if body.url is not None:
-        w.url = str(body.url)
+        w.url = check_url(str(body.url), w.env)
     if body.events is not None:
         w.events = _check_events(body.events)
     if body.enabled is not None:

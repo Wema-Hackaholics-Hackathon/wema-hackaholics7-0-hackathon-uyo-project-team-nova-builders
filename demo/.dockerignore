@@ -1,0 +1,8 @@
+.env
+keys
+node_modules
+**/node_modules
+dist
+**/.venv
+**/__pycache__
+README.md

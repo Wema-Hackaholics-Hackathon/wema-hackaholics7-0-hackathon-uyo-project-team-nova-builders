@@ -31,6 +31,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.crypto import decrypt_str
 from app.models import ConsentGrant, WebhookDelivery, WebhookEndpoint
+from app.services.webhook_urls import BlockedUrl, safe_target
 
 EVENT_TYPES = [
     "verification.completed",
@@ -157,7 +158,16 @@ async def _send(client: httpx.AsyncClient, ep: WebhookEndpoint, payload: dict[st
         "FOID-Event-Id": str(payload["id"]),
     }
     try:
-        r = await client.post(ep.url, content=body, headers=headers, timeout=_TIMEOUT_SECS)
+        # Re-check the URL and connect to the address we checked (no DNS rebinding, no redirects).
+        target = await safe_target(ep.url, ep.env)
+    except BlockedUrl as exc:
+        return None, f"blocked: {exc}"[:300]
+    if target.host_header:
+        headers["Host"] = target.host_header
+    extensions = {"sni_hostname": target.sni_hostname} if target.sni_hostname else None
+    try:
+        r = await client.post(target.url, content=body, headers=headers, timeout=_TIMEOUT_SECS,
+                              follow_redirects=False, extensions=extensions)
         return r.status_code, None if r.is_success else r.text[:300]
     except httpx.HTTPError as exc:
         return None, str(exc)[:300]

@@ -1,0 +1,36 @@
+# Harbor — a pretend business using the FOID SDKs.
+#
+#   docker compose up python --build     # React app + Python backend → http://localhost:3100
+#   docker compose up node --build       # React app + Node backend   → http://localhost:3200
+#   docker compose down                  # stop
+#
+# Both run on the host network, so "localhost" means your machine: the container reaches the
+# FOID backend on localhost:8000, and FOID can deliver webhooks to localhost:3100 / 3200.
+# The servers bind 127.0.0.1 only — nothing is exposed to your network.
+name: harbor-demo
+
+x-common: &common
+  network_mode: host
+  env_file:
+    - path: .env
+      required: false
+  user: "${DEMO_UID:-1000}:${DEMO_GID:-1000}"   # so keys/ stays owned by you
+  volumes:
+    - ./keys:/app/keys
+
+services:
+  python:
+    <<: *common
+    build: { context: ., dockerfile: python/Dockerfile }
+    image: harbor-demo-python
+    environment:
+      PORT: "3100"
+      FOID_WEBHOOK_SECRET: ${FOID_WEBHOOK_SECRET_PYTHON:-}
+
+  node:
+    <<: *common
+    build: { context: ., dockerfile: node/Dockerfile }
+    image: harbor-demo-node
+    environment:
+      PORT: "3200"
+      FOID_WEBHOOK_SECRET: ${FOID_WEBHOOK_SECRET_NODE:-}

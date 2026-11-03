@@ -1,0 +1,15 @@
+{
+  "name": "harbor-demo-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Harbor — a pretend business using the FOID Node SDK",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "keygen": "foid keygen"
+  },
+  "dependencies": {
+    "@foid/node": "file:vendor/foid-node-0.1.0.tgz"
+  },
+  "engines": { "node": ">=18" }
+}
