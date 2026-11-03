@@ -124,3 +124,18 @@ async def test_localhost_delivery_works_in_test_mode(client: httpx.AsyncClient, 
     d = await _send_test(client, owner, org, hook)
     assert d["status"] == "delivered"
     assert str(webhook_sink.requests[-1].url) == "http://127.0.0.1:3100/webhooks/foid"
+
+
+async def test_allowed_internal_hosts_for_test_endpoints_only(client: httpx.AsyncClient, webhook_sink: WebhookSink,
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """WEBHOOK_ALLOWED_HOSTS (docker-compose service names): test endpoints only, only the listed names."""
+    monkeypatch.setattr(get_settings(), "WEBHOOK_ALLOWED_HOSTS", "demo-python, demo-node")
+    owner, org = await _setup(client)
+    hook = (await _create(client, owner, org, "http://demo-python:3100/webhooks/foid")).json()
+    assert hook["url"] == "http://demo-python:3100/webhooks/foid"
+    assert (await _create(client, owner, org, "http://demo-other:3100/h")).status_code == 400   # not listed
+    assert (await _create(client, owner, org, "https://demo-python/h", "live")).status_code == 400   # never live
+    _resolve_to(monkeypatch, "172.18.0.5")              # a docker network address
+    d = await _send_test(client, owner, org, hook)
+    assert d["status"] == "delivered"
+    assert str(webhook_sink.requests[-1].url) == "http://172.18.0.5:3100/webhooks/foid"

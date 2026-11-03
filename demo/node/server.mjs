@@ -15,16 +15,19 @@ import { Foid, FoidError, createPkce, generateKeyPair } from '@foid/node'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const SDK_VERSION = JSON.parse(readFileSync(join(HERE, 'node_modules/@foid/node/package.json'), 'utf8')).version
 
-// Outside Docker, read ../.env (Docker passes the same values with env_file).
-const dotenv = join(HERE, '..', '.env')
-if (existsSync(dotenv)) {
-  for (const line of readFileSync(dotenv, 'utf8').split('\n')) {
+// Outside Docker, read ../.env (Docker passes the same values with env_file). In the all-in-one
+// docker-compose, DEMO_ENV_FILE points at the settings the backend's first-boot seed wrote.
+function loadDotenv(file) {
+  if (!file || !existsSync(file)) return
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
     const s = line.trim()
     if (!s || s.startsWith('#') || !s.includes('=')) continue
     const i = s.indexOf('=')
     process.env[s.slice(0, i).trim()] ??= s.slice(i + 1).trim()
   }
 }
+loadDotenv(join(HERE, '..', '.env'))
+loadDotenv(process.env.DEMO_ENV_FILE)
 const env = (k, d = '') => (process.env[k] || d).trim()
 
 const API_URL = env('FOID_API_URL', 'http://localhost:8000')

@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import ClassVar, Literal
 
 import sqlalchemy
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
@@ -58,6 +59,22 @@ class Settings(BaseSettings):
     PUBLIC_APP_URL: str = "http://localhost:5173"   # base for hosted verification links
     # Test-mode webhooks to http://localhost (a developer's own machine). Unset = on, except ENV=production.
     WEBHOOK_ALLOW_LOCALHOST: bool | None = None
+    # Docs site (docs/) — its live "Continue with FOID" playground uses a built-in FOID test app
+    DOCS_SITE_URL: str = "http://localhost:5177"
+    DOCS_PLAYGROUND: bool = True
+    # Where the MCP server fetches docs-index.json. Blank = {DOCS_SITE_URL}/docs-index.json. Set it when the
+    # backend reaches the docs by another address than browsers do (e.g. http://docs/docs-index.json in Docker).
+    DOCS_INDEX_URL: str = ""
+    # Comma-separated hostnames that TEST webhook endpoints may use even though they're internal names
+    # (e.g. "demo-python,demo-node" in docker-compose). Live endpoints never get this exception.
+    WEBHOOK_ALLOWED_HOSTS: str = ""
+    DOCS_MCP: bool = True            # POST /mcp — AI tools search/read the docs (fetched from DOCS_SITE_URL)
+
+    @field_validator("WEBHOOK_ALLOW_LOCALHOST", mode="before")
+    @classmethod
+    def _blank_is_default(cls, v: object) -> object:
+        """`WEBHOOK_ALLOW_LOCALHOST=` (empty) means "use the default", not a startup error."""
+        return None if isinstance(v, str) and not v.strip() else v
     API_PUBLIC_URL: str = "http://localhost:8000"   # this API's public base — the `aud` of private_key_jwt assertions
     IDENTITY_PROVIDER: Literal["mock"] = "mock"     # NIN/BVN lookups; real adapters plug in here
     DATA_ENCRYPTION_KEY: str = ""       # Fernet key for secrets at rest; derived from SECRET_KEY in dev
@@ -72,6 +89,13 @@ class Settings(BaseSettings):
 
     # Environment
     ENV: Literal["development", "production", "test"] = "development"
+    # Log every SQL statement. Blank = on in development only.
+    SQL_ECHO: bool | None = None
+
+    @field_validator("SQL_ECHO", mode="before")
+    @classmethod
+    def _blank_echo_is_default(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v
 
 
 @lru_cache
@@ -96,7 +120,7 @@ def _get_engine():
             connect_args = {"check_same_thread": False}
         _engine = create_async_engine(
             settings.DATABASE_URL,
-            echo=settings.ENV == "development",
+            echo=settings.SQL_ECHO if settings.SQL_ECHO is not None else settings.ENV == "development",
             connect_args=connect_args,
         )
     return _engine

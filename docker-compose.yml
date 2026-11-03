@@ -1,0 +1,117 @@
+# FOID — the whole project in one command (local testing; not a production deployment).
+#
+#   docker compose up --build          # first run builds everything (a few minutes)
+#   docker compose logs -f backend     # sign-in / verification codes are printed here
+#   docker compose down                # stop          (add -v to wipe the database and start fresh)
+#
+#   http://localhost:5173  FOID user app          ada@example.com / FoidTester#2026
+#   http://localhost:5174  business console       demo@harbor.example / HarborDemo#2026
+#   http://localhost:5177  docs (+ playground)
+#   http://localhost:3100  Harbor demo, Python backend    http://localhost:3200  Harbor demo, Node backend
+#   http://localhost:8000  FOID API  (/docs = Swagger, /mcp = docs MCP server)
+#
+# On first boot the backend seeds a TEST business (API key, sign-in app, webhooks to the demo) and a FOID
+# user, and hands the demo its keys — so everything works straight away. Test mode only: sandbox data.
+# Optional settings (real email, AI chat, Mono…): copy .env.example to .env in this folder.
+
+name: foid
+
+x-web: &web
+  depends_on:
+    backend: { condition: service_healthy }
+  restart: unless-stopped
+
+x-demo: &demo
+  depends_on:
+    backend: { condition: service_healthy }
+  restart: unless-stopped
+  volumes:
+    - foid-data:/seed:ro            # demo.env written by the backend's seed
+    - demo-keys:/app/keys           # key pair from the demo's Setup tab (shared by both demos)
+
+services:
+  backend:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    image: foid-backend:local
+    restart: unless-stopped
+    ports: ["8000:8000"]
+    volumes: [foid-data:/data]
+    environment:
+      ENV: development
+      SQL_ECHO: "false"                     # keep the logs readable (sign-in codes are printed here)
+      DATABASE_URL: sqlite+aiosqlite:////data/foid.db
+      SECRET_KEY: ${SECRET_KEY:-local-docker-only-change-me-0f6c1e9a2b7d4c58}
+      # where browsers reach each app
+      PUBLIC_APP_URL: http://localhost:5173
+      CONSOLE_URL: http://localhost:5174
+      DOCS_SITE_URL: http://localhost:5177
+      API_PUBLIC_URL: http://localhost:8000
+      ALLOWED_ORIGINS: http://localhost:5173,http://localhost:5174,http://localhost:5177
+      # inside the compose network
+      DOCS_INDEX_URL: http://docs/docs-index.json
+      WEBHOOK_ALLOW_LOCALHOST: "true"
+      WEBHOOK_ALLOWED_HOSTS: demo-python,demo-node
+      # optional external services (blank = off; emails go to the logs)
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      FROM_EMAIL: ${FROM_EMAIL:-FOID <onboarding@resend.dev>}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      MONO_PUBLIC_KEY: ${MONO_PUBLIC_KEY:-}
+      MONO_SECRET_KEY: ${MONO_SECRET_KEY:-}
+      BACHS_API_KEY: ${BACHS_API_KEY:-}
+      BACHS_WEBHOOK_SECRET: ${BACHS_WEBHOOK_SECRET:-}
+    healthcheck:                            # first boot seeds demo data before the API starts
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=8).status == 200 else 1)"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    command: >-
+      sh -c "python -m app.dev_seed --out /data/demo.env &&
+             exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+                  --proxy-headers --forwarded-allow-ips='*'"
+
+  frontend:
+    <<: *web
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+      args: { APP: frontend, VITE_MONO_PUBLIC_KEY: "${MONO_PUBLIC_KEY:-}" }
+    image: foid-frontend:local
+    ports: ["5173:80"]
+
+  enterprise:
+    <<: *web
+    build: { context: ., dockerfile: deploy/web.Dockerfile, args: { APP: enterprise } }
+    image: foid-enterprise:local
+    ports: ["5174:80"]
+
+  docs:
+    build: { context: ., dockerfile: deploy/web.Dockerfile, args: { APP: docs } }
+    image: foid-docs:local
+    restart: unless-stopped
+    ports: ["5177:80"]
+
+  demo-python:
+    <<: *demo
+    build: { context: ./demo, dockerfile: python/Dockerfile }
+    image: harbor-demo-python
+    ports: ["3100:3100"]
+    environment: &demo-env
+      HOST: 0.0.0.0
+      PORT: "3100"
+      FOID_API_URL: http://backend:8000        # server → FOID, inside the network
+      FOID_APP_URL: http://localhost:5173      # the sign-in popup, opened by the browser
+      DEMO_ENV_FILE: /seed/demo.env
+
+  demo-node:
+    <<: *demo
+    build: { context: ./demo, dockerfile: node/Dockerfile }
+    image: harbor-demo-node
+    ports: ["3200:3200"]
+    environment:
+      <<: *demo-env
+      PORT: "3200"
+
+volumes:
+  foid-data:
+  demo-keys:

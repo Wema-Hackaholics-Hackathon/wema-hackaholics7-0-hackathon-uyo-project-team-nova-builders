@@ -1,0 +1,22 @@
+{
+  "name": "foid-docs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FOID documentation site (VitePress) — developers, SDKs, API reference, user help",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev --port 5177",
+    "build": "vitepress build",
+    "preview": "vitepress preview --port 5177",
+    "api": "cd ../backend && uv run python ../docs/scripts/gen_api_reference.py"
+  },
+  "dependencies": {
+    "@foid/react": "file:../sdks/react",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4",
+    "vue": "^3.5.0"
+  }
+}

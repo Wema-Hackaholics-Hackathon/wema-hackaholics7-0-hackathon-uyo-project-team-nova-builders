@@ -18,9 +18,11 @@ from .kyb import router as kyb_router
 from .open_api import router as open_api_router
 from .consents import router as consents_router
 from .credentials import router as credentials_router
+from .docs_playground import router as docs_playground_router
 from .ledger import router as ledger_router
 from .liveness import router as liveness_router
 from .liveness_public import router as liveness_public_router
+from .mcp import router as mcp_router
 from .notifications import router as notifications_router
 from .oauth import router as oauth_router
 from .oauth_apps import router as oauth_apps_router
@@ -38,6 +40,7 @@ __all__ = [
     "billing_router",
     "business_router",
     "connected_apps_router",
+    "docs_playground_router",
     "console_auth_router",
     "console_data_router",
     "hosted_router",
@@ -48,6 +51,7 @@ __all__ = [
     "ledger_router",
     "liveness_router",
     "liveness_public_router",
+    "mcp_router",
     "notifications_router",
     "oauth_router",
     "oauth_apps_router",

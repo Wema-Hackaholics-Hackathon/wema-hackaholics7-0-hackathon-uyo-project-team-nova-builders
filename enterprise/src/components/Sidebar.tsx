@@ -6,6 +6,7 @@ import { useMode } from '@/contexts/ModeContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useFetch } from '@/lib/useFetch'
 import { CreateBusiness } from '@/pages/AccountPage'
+import { docsLink } from '@/lib/docs'
 
 /* ── Design tokens ──────────────────────────────────────────────────── */
 const SIDEBAR_BG   = '#F5F5F5'
@@ -95,8 +96,26 @@ function NavList({
         ))}
       </nav>
 
-      {/* Logout */}
-      <div>
+      {/* Developer docs (opens the docs site) + Logout */}
+      <div className="flex flex-col gap-1">
+        <a
+          href={docsLink('/guide/')}
+          target="_blank"
+          rel="noreferrer"
+          title={collapsed ? 'Developer docs' : undefined}
+          onClick={onLinkClick}
+          className={[
+            'flex items-center gap-2.5 rounded-lg transition-colors hover:bg-neutral-200 hover:text-neutral-800',
+            collapsed ? 'justify-center px-0 py-2' : 'px-3 py-2',
+          ].join(' ')}
+          style={{ color: '#B2B2B2' }}
+        >
+          <RemixIcon name="ri-book-open-line" size={20} clickable />
+          <span className="text-[13px] font-medium" style={collapsed ? labelStyle(true) : { whiteSpace: 'nowrap' }}>
+            Developer docs
+          </span>
+          {!collapsed && <RemixIcon name="ri-external-link-line" size={14} />}
+        </a>
         <button
           onClick={handleLogout}
           title={collapsed ? 'Logout' : undefined}

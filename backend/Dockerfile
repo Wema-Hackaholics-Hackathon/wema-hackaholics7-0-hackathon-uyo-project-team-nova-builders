@@ -20,6 +20,10 @@ RUN uv sync --frozen --no-dev --no-install-project
 # Copy application source + logo (email templates load it at runtime via
 # the second candidate path: app/services/logo-white.png)
 COPY backend/app/ ./app/
+COPY backend/README.md ./README.md
+# Alembic: the app checks the schema against migrations/ at startup (core/schema_check.py)
+COPY backend/alembic.ini ./alembic.ini
+COPY backend/migrations/ ./migrations/
 COPY frontend/public/logo-white.png ./app/services/logo-white.png
 
 # Install the project itself (registers entry-point scripts)
@@ -46,10 +50,12 @@ WORKDIR /app
 # Copy the virtualenv and app source from builder (logo bundled inside app/)
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/app   /app/app
+COPY --from=builder /app/alembic.ini /app/alembic.ini
+COPY --from=builder /app/migrations /app/migrations
 
 # Uploads directory — mount a named volume here in production for persistence:
 #   docker run -v foid_uploads:/app/uploads ...
-RUN mkdir -p uploads/avatars uploads/proof_of_address
+RUN mkdir -p uploads/avatars uploads/proof_of_address /data   # /data: SQLite + seed output in docker-compose
 
 # Make sure the venv binaries are on PATH
 ENV PATH="/app/.venv/bin:$PATH" \
@@ -58,7 +64,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 # Non-root user for security
 RUN addgroup --system foid && adduser --system --ingroup foid foid
-RUN chown -R foid:foid /app
+RUN chown -R foid:foid /app /data
 USER foid
 
 EXPOSE 8000

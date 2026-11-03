@@ -46,6 +46,8 @@ def load_dotenv(path: Path) -> None:
 
 
 load_dotenv(HERE.parent / ".env")
+if env("DEMO_ENV_FILE"):              # docker-compose: settings written by the backend's first-boot seed
+    load_dotenv(Path(env("DEMO_ENV_FILE")))
 
 API_URL = env("FOID_API_URL", "http://localhost:8000")
 FOID_URL = env("FOID_APP_URL", "http://localhost:5173")

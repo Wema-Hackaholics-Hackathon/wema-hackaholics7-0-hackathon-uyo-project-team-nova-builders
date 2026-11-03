@@ -16,6 +16,7 @@ import LivenessModal from '@/liveness/LivenessModal'
 import { NinVerifyAction } from '@/pages/dashboard/MyIdentityPage'
 import { useAuth } from '@/contexts/AuthContext'
 import { api, apiErrorMessage, deviceId } from '@/lib/api'
+import { docsLink } from '@/lib/docs'
 
 const BRAND = '#C800DE'
 const input = 'w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-[14px] outline-none focus:border-[#C800DE]'
@@ -316,6 +317,8 @@ export default function AuthorizePage() {
 
         <div className="px-5 py-3 bg-neutral-50 border-t border-neutral-100 flex items-center justify-center gap-1.5 text-[11.5px] text-neutral-400">
           <RemixIcon name="ri-lock-2-line" size={13} color="#a1a1aa" /> Secured by <FoidWordmark height={11} color={BRAND} />
+          <span aria-hidden>·</span>
+          <a href={docsLink('/help/continue-with-foid')} target="_blank" rel="noreferrer" className="hover:text-neutral-600 underline-offset-2 hover:underline">What is this?</a>
         </div>
       </div>
 

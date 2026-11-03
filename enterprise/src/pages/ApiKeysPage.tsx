@@ -2,6 +2,7 @@ import { useState } from 'react'
 import RemixIcon from '@/components/RemixIcon'
 import Modal, { Confirm, SecretOnce, inputCls } from '@/components/Modal'
 import { Button, PageHeader, Panel, Pill } from '@/components/ui'
+import { docsLink } from '@/lib/docs'
 import { useMode } from '@/contexts/ModeContext'
 import { api, apiErrorMessage } from '@/lib/api'
 import { ago, shortDate, useFetch } from '@/lib/useFetch'
@@ -79,6 +80,7 @@ export default function ApiKeysPage() {
   return (
     <div className="pb-8 flex flex-col gap-6">
       <PageHeader title="API keys & webhooks" subtitle="Manage credentials and real-time event delivery for your integration">
+        <Button variant="outline" icon="ri-book-open-line" onClick={() => window.open(docsLink('/guide/quickstart'), '_blank', 'noopener')}>Docs</Button>
         {isDev && <Button icon="ri-add-line" onClick={() => open({ kind: 'create-key' })}>Create {mode} key</Button>}
       </PageHeader>
 

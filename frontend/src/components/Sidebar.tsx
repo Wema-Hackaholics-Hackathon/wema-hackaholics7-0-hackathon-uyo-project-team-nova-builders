@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import RemixIcon from './RemixIcon'
 import FoidWordmark from './FoidWordmark'
 import { useAuth } from '../contexts/AuthContext'
+import { docsLink } from '../lib/docs'
 
 /* ── Design tokens ──────────────────────────────────────────────────── */
 const SIDEBAR_BG   = '#F5F5F5'
@@ -89,8 +90,24 @@ function NavList({
         ))}
       </nav>
 
-      {/* Logout */}
-      <div>
+      {/* Help centre (opens the docs site) + Logout */}
+      <div className="flex flex-col gap-1">
+        <a
+          href={docsLink('/help/')}
+          target="_blank"
+          rel="noreferrer"
+          title={collapsed ? 'Help centre' : undefined}
+          className={[
+            'flex items-center gap-2.5 rounded-lg transition-colors hover:bg-neutral-200 hover:text-neutral-800',
+            collapsed ? 'justify-center px-0 py-2' : 'px-3 py-2',
+          ].join(' ')}
+          style={{ color: '#B2B2B2' }}
+        >
+          <RemixIcon name="ri-question-line" size={20} clickable />
+          <span className="text-[13px] font-medium" style={collapsed ? labelStyle(true) : { whiteSpace: 'nowrap' }}>
+            Help centre
+          </span>
+        </a>
         <button
           onClick={handleLogout}
           title={collapsed ? 'Logout' : undefined}

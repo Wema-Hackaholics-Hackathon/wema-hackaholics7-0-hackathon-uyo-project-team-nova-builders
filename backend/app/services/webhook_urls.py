@@ -43,6 +43,14 @@ def allow_loopback(env: str) -> bool:
     return env == "test" and allowed
 
 
+def allowed_internal_host(host: str, env: str) -> bool:
+    """WEBHOOK_ALLOWED_HOSTS: named internal hosts (e.g. docker-compose services) — test endpoints only."""
+    if env != "test":
+        return False
+    names = {h.strip().lower() for h in get_settings().WEBHOOK_ALLOWED_HOSTS.split(",") if h.strip()}
+    return host in names
+
+
 def _ip(host: str) -> IP | None:
     try:
         ip = ipaddress.ip_address(host.strip("[]").split("%")[0])
@@ -79,6 +87,8 @@ def _check_static(url: str, env: str) -> tuple[str, str, int]:
         raise BlockedUrl("Don't put a username or password in the URL — verify the FOID-Signature instead")
     if not host:
         raise BlockedUrl("The URL has no host")
+    if allowed_internal_host(host, env):
+        return scheme, host, port or (443 if scheme == "https" else 80)
     ip = _ip(host)
     if ip is not None:
         _check_ip(ip, env)
@@ -122,11 +132,13 @@ async def safe_target(url: str, env: str) -> Target:
         raise BlockedUrl(f"Couldn't resolve {host}: {e}")
     if not addrs:
         raise BlockedUrl(f"Couldn't resolve {host}")
+    trusted = allowed_internal_host(host, env)   # an explicitly allowed internal name: private IPs expected
     for a in addrs:                       # one bad record is enough to refuse (rebinding tricks)
         ip = _ip(a)
         if ip is None:
             raise BlockedUrl(f"{host} resolved to an unexpected address")
-        _check_ip(ip, env)
+        if not trusted:
+            _check_ip(ip, env)
     ip = _ip(addrs[0])
     assert ip is not None
     p = urlsplit(url)

@@ -1,0 +1,30 @@
+# Static app + /api → FOID backend. ${BACKEND_URL} is filled in by the nginx image at start.
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    client_max_body_size 25m;          # KYB documents, NIN slips, liveness frames
+
+    charset utf-8;
+    charset_types text/plain text/markdown application/json;
+
+    location /api/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # docs: page copies for AI tools (/guide/quickstart.md) — .md isn't in nginx's MIME map
+    location ~* \.md$ {
+        default_type text/markdown;
+        try_files $uri =404;
+    }
+
+    # SPA routes (/dashboard, /oauth/authorize, /verify/…) and VitePress clean URLs (/guide/quickstart)
+    location / {
+        try_files $uri $uri.html $uri/ /index.html;
+    }
+}

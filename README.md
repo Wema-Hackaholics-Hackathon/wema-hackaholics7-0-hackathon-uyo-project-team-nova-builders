@@ -4,10 +4,13 @@
 
 > **Wema Hackaholics 7.0 Hackathon · Uyo · Team Nova Builders**
 
-FOID is a reusable KYC and identity trust layer for the Nigerian fintech ecosystem.
-A user verifies their identity once — FOID watches their Open Banking activity in real time and
-automatically updates their financial trust credential the moment their behaviour changes.
-No manual re-check ever needed. Any platform can integrate via our Open API.
+FOID is a reusable identity layer for Nigerian fintech. A person verifies once — NIN, BVN and a live
+face check — and shares that proof with banks and apps **only when they approve**, revoking access
+whenever they like. The credential stays alive: connected Open Banking activity can move it between
+`active → under_review → downgraded → revoked`, and every business holding it is told.
+
+Businesses integrate through an Open API, a hosted verification page, or a **Continue with FOID**
+sign-in button, with SDKs for Python, Node and React.
 
 ---
 
@@ -17,7 +20,7 @@ No manual re-check ever needed. Any platform can integrate via our Open API.
 |---|---|
 | Wiseman Umanah | [@wiseman-umanah](https://github.com/wiseman-umanah) |
 | Akwaubok Emeh | [@AHKAYY007](https://github.com/AHKAYY007) |
-| Alex Daniel| [@AHKAYY007](https://github.com/TheCodeCheff123) |
+| Alex Daniel| [@TheCodeCheff123](https://github.com/TheCodeCheff123) |
 
 
 ---
@@ -32,135 +35,153 @@ No manual re-check ever needed. Any platform can integrate via our Open API.
 
 ---
 
-## The Problem
+## What's in this repo
 
-Nigerian fintechs re-run the same KYC and credit checks from scratch every time a customer
-applies for a product — because there is no trusted, living identity layer shared between them.
-This means higher onboarding costs, duplicate fraud checks, and a frustrating experience for
-users who have already been verified elsewhere.
+| App | Folder | Stack | Port | Who it's for |
+|---|---|---|---|---|
+| **Backend** | `backend/` | Python 3.12, FastAPI, SQLModel, Alembic | **8000** | Everything: user API, console API, Open API, sign-in, webhooks |
+| **User app** | `frontend/` | React 19, Vite, Tailwind 4 | **5173** | People: create and verify a FOID, share it, manage consent. Also hosts the hosted-verification page and the *Continue with FOID* popup |
+| **Business console** | `enterprise/` | React 19, Vite, Tailwind 4 | **5174** | Businesses: API keys, sign-in apps, webhooks, request logs, team, billing, go-live (KYB) |
+| **Docs** | `docs/` | VitePress | **5177** | Developer guides, SDK docs, API reference, live playground, user help centre |
+| **SDKs** | `sdks/` | Python, Node, React | — | `foid`, `@foid/node`, `@foid/react` |
+| **Example app** | `demo/` | Docker (React + Python or Node) | **3100 / 3200** | "Harbor", a pretend business that uses every SDK feature |
+| *Open Banking prototype* | `openbanking/` | FastAPI | — | Standalone early prototype. **Not used** by the apps above — don't run it |
 
----
-
-## Our Solution
-
-FOID gives a user a **Verified Digital Credential** — a structured, tamper-evident record of
-their identity and financial behaviour. The credential is backed by:
-
-- **NIN + BVN verification** — official government and banking identity anchors
-- **Active liveness check + face matching** — server-verified random challenges (head turns,
-  open mouth) with signed receipts, then an encrypted face template for 1:1 re-verification
-- **Open Banking integration** — real transaction data from Mono-connected bank accounts feeds
-  into account stability and repayment reliability signals
-- **AI-powered business ledger** — OCR receipt scanning + Groq AI summarises income/expense
-  patterns, giving an instant financial portrait
-
-The credential **stays alive** — a state machine (active → under\_review → downgraded → revoked)
-reacts to behavioural triggers (missed repayment, income drop, suspicious activity). Any platform
-that has integrated FOID receives an instant webhook when a user's state changes.
+```
+FOID/
+├── backend/          FastAPI app (app/), Alembic migrations, tests, Dockerfile
+│   └── app/          routers/ services/ models/ schemas/ core/ config/ utils/ data/
+├── frontend/         FOID user app
+├── enterprise/       business console
+├── docs/             docs site (help/, guide/, sdks/, api/, playground)
+├── sdks/             python/ node/ react/
+├── demo/             Harbor example app (docker compose up python | node)
+└── openbanking/      standalone prototype (not wired in)
+```
 
 ---
 
-## Platform Open API (B2B)
+## Run everything with Docker (quickest way to try FOID)
 
-Fintechs and lenders integrate FOID with three API calls:
+All you need is [Docker](https://docs.docker.com/get-docker/). From the repo root:
 
-1. `POST /api/open/oauth/token` — mint a platform access token with `client_id` + `client_secret`
-2. `POST /api/open/users` — register a user by email; FOID creates a linked user record
-3. `GET /api/open/users/:id/credential` — read the user's verified claims filtered to your approved scopes
+```bash
+docker compose up --build        # first run: a few minutes to build; later runs start in seconds
+```
 
-Face ID / liveness for your users — zero camera code required:
+| Open | What | Sign in with |
+|---|---|---|
+| http://localhost:5173 | FOID user app | `ada@example.com` / `FoidTester#2026` |
+| http://localhost:5174 | Business console | `demo@harbor.example` / `HarborDemo#2026` |
+| http://localhost:5177 | Docs, playground, help centre | — |
+| http://localhost:3100 · http://localhost:3200 | Harbor demo (Python / Node backend) | — |
+| http://localhost:8000/docs | FOID API (Swagger) · `/mcp` docs MCP server | — |
 
-4. `POST /api/open/users/:id/liveness-request` — FOID returns a one-time URL; redirect your user to it
-5. FOID hosts the liveness page, fires a webhook to your endpoint on pass
+On first boot the backend creates a **test** business with an API key, a sign-in app and webhooks for the
+demo, plus a FOID user — so the demo works straight away. Everything is test mode (sandbox data).
 
-Users control their own data — a **Connected Apps** dashboard lets any FOID account holder
-approve, inspect, and revoke platform access at any time.
+- **Codes:** sign-in and verification codes are emailed — with no email service set up they're printed in
+  the logs: `docker compose logs -f backend`.
+- **Optional services** (real email, AI chat, Mono, Bachs): copy `.env.example` (repo root) to `.env` and fill in.
+- **Stop:** `docker compose down`. **Start over** with a fresh database: `docker compose down -v`.
+- The ports above must be free — stop any `pnpm dev` / `uvicorn` you're running for FOID first.
 
----
+## First-time setup (without Docker)
 
-## Tech Stack
+You need **Python 3.12 + [uv](https://docs.astral.sh/uv/)**, **Node 18+ + [pnpm](https://pnpm.io)**, and **Docker** (only for the example app).
+
+```bash
+# Backend
+cd backend
+cp .env.example .env            # works as is for local dev — see the comments inside
+uv sync
+uv run alembic upgrade head     # a brand-new database is created automatically; this keeps an existing one up to date
+
+# Front ends
+cd ../frontend   && pnpm install
+cd ../enterprise && pnpm install
+cd ../docs       && pnpm install
+```
+
+Every external service (email, AI, Mono, Bachs, Redis) is optional — with the keys blank the app still runs, and **emails are printed in the backend terminal** (that's where you'll find sign-up and sign-in codes locally).
+
+## Run it
+
+One terminal per app:
+
+```bash
+cd backend    && uv run uvicorn app.main:app --reload   # http://localhost:8000  (API docs: /docs)
+cd frontend   && pnpm dev                               # http://localhost:5173
+cd enterprise && pnpm dev                               # http://localhost:5174
+cd docs       && pnpm dev                               # http://localhost:5177
+```
+
+What you need for what:
+
+| To… | Run |
+|---|---|
+| Use FOID as a person (sign up, verify, share, revoke) | backend + frontend |
+| Manage a business (keys, sign-in apps, webhooks) | backend + enterprise |
+| Try **Continue with FOID** or a hosted verification | backend + frontend (the popup and verification pages live there) |
+| Read the docs | docs (the playground also needs backend + frontend) |
+| Run the Harbor example app | backend + frontend + enterprise (to create its keys), then `cd demo && docker compose up python --build` — see [demo/README.md](demo/README.md) |
+
+After pulling changes, run `uv sync` and `uv run alembic upgrade head` in `backend/` again. If the
+database is behind, the API answers **503** with the exact command to run.
+
+## Tests
+
+```bash
+cd backend && uv run pytest -q          # throwaway SQLite; never touches your foid.db or real services
+```
+
+To run against Postgres: `FOID_TEST_DATABASE_URL=postgresql+asyncpg://… uv run pytest -q`.
+The front ends have no test runner; `pnpm build` type-checks them.
+
+## Environment files
+
+Each app has a `.env.example` explaining every variable. Copy it, never commit the real file.
+
+| App | Copy to | Notes |
+|---|---|---|
+| `backend/.env.example` | `backend/.env` | Core settings, keys required in production, optional external services |
+| `frontend/.env.example` | `frontend/.env.local` | API URL, Mono public key, docs URL |
+| `enterprise/.env.example` | `enterprise/.env.local` | API URL, docs URL |
+| `docs/.env.example` | `docs/.env` | Only for deploying the docs site |
+| `demo/.env.example` | `demo/.env` | Keys you create in the console for the example app |
+
+## SDKs and docs
+
+- **Docs site** — `docs/` ([how to run it](docs/README.md)): quickstart, guides, SDK reference, an API reference generated from the backend, a live *Continue with FOID* playground and the user help centre. AI-friendly too: `llms.txt`, a *Copy page* menu on every page, and a docs MCP server on the backend (`/mcp`) — see the *Use FOID docs with AI* page.
+- **SDKs** — [sdks/README.md](sdks/README.md): `foid` (Python) and `@foid/node` for servers, `@foid/react` for the browser.
+- **Example app** — [demo/README.md](demo/README.md): Harbor, in Docker, with a Python or Node backend.
+
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS 4, Framer Motion, Recharts |
-| **Backend** | Python 3.12, FastAPI, Uvicorn, SQLModel (SQLAlchemy 2 + Pydantic v2) |
-| **AI / OCR** | Groq (Qwen + GPT-class models) — receipt parsing, financial chat |
-| **Liveness** | [faceliveness](https://pypi.org/project/faceliveness/) (server-side, Ed25519-signed receipts) + OpenCV SFace for 1:1 face matching |
-| **Open Banking** | Mono Connect — bank account linking, transaction history |
-| **Payments** | Bachs — NGN credit purchase, webhook-verified top-up |
+| **Front ends** | React 19, TypeScript, Vite, Tailwind CSS 4, Framer Motion, Recharts |
+| **Backend** | Python 3.12, FastAPI, Uvicorn, SQLModel (SQLAlchemy 2 + Pydantic v2), Alembic |
 | **Database** | SQLite (dev) / PostgreSQL (prod) via aiosqlite / asyncpg |
-| **Auth** | Argon2id password hashing, HS256 JWT access tokens, rotating refresh tokens |
-| **Rate Limiting** | slowapi |
-| **Cache** | Redis (optional — gracefully disabled if absent) |
-| **PDF generation** | fpdf2 |
+| **Identity** | NIN/BVN lookups behind a provider interface (sandbox mock in test mode) |
+| **Liveness** | [faceliveness](https://pypi.org/project/faceliveness/) (server-side, Ed25519-signed receipts) + OpenCV SFace for 1:1 face matching |
+| **Sign-in for businesses** | OAuth 2.0 authorization code + PKCE, client secret or `private_key_jwt` |
+| **Auth** | Argon2id passwords, HS256 JWT + rotating refresh tokens, TOTP two-factor, passkeys (WebAuthn) |
+| **AI / OCR** | Groq — in-app assistant, NIN document reading, receipt parsing |
+| **Open Banking** | Mono Connect |
+| **Payments** | Bachs |
+| **Email** | Resend (printed to the terminal when not configured) |
+| **Docs** | VitePress |
+| **Other** | slowapi (rate limits), Redis (optional cache), fpdf2 (PDFs) |
 
----
-
-## Repository Structure
-
-```
-├── backend/            FastAPI backend (Python 3.12, uv)
-│   ├── app/
-│   │   ├── models/     SQLModel ORM tables
-│   │   ├── routers/    API endpoint handlers
-│   │   ├── schemas/    Pydantic request / response models
-│   │   ├── services/   Business logic (Groq, Mono, Bachs, liveness, wallet)
-│   │   ├── core/       JWT, password hashing, dependencies
-│   │   ├── utils/      Rate limiter, Redis cache
-│   │   └── data/       Haar cascade XML files
-│   ├── Dockerfile
-│   └── pyproject.toml
-│
-├── frontend/           React SPA (pnpm, Vite)
-│   └── src/
-│       ├── pages/      Landing, auth, dashboard pages
-│       ├── components/ Reusable UI components
-│       ├── contexts/   AuthContext, CredentialContext
-│       └── lib/        axios API client
-│
-└── openbanking/        SSE event bridge (Python 3.12, FastAPI)
-```
-
----
-
-## Quick Start (Local)
-
-### Backend
+## Deploying the backend with Docker
 
 ```bash
-cd backend
-cp .env.example .env          # fill in SECRET_KEY, GROQ_API_KEY, MONO_*, BACHS_*
-uv sync
-uv run uvicorn app.main:app --reload
-# → http://localhost:8000/docs
+docker build -f backend/Dockerfile -t foid-backend .     # from the repo root
+docker run -p 8000:8000 --env-file backend/.env foid-backend
 ```
 
-### Frontend
-
-```bash
-cd frontend
-pnpm install
-pnpm dev
-# → http://localhost:5173
-```
-
-### Docker (backend only)
-
-```bash
-cd backend
-docker build -t foid-backend .
-docker run -p 8000:8000 --env-file .env foid-backend
-```
-
----
-
-## API Reference
-
-Interactive docs (Swagger UI): `http://localhost:8000/docs`
-OpenAPI JSON: `http://localhost:8000/openapi.json`
-
-All versioned endpoints are prefixed `/api/v1/`.
-Platform Open API endpoints are prefixed `/api/open/`.
+Set `ENV=production` and every key marked *REQUIRED IN PRODUCTION* in `backend/.env.example`.
 
 ---
 

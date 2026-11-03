@@ -63,4 +63,4 @@ If you hit a merge conflict you're not sure how to resolve, don't force-push ove
 
 ## Who to Ask
 
-If you're unsure whether something fits FOID's scope, check `/docs/FOID_PRD.md` first — most "should we add X" questions have already been thought through there. If it's still unclear, ask the team before building, not after.
+If you're unsure whether something fits FOID's scope, read the original PRD first — it's in git history: `git show 9b64931:docs/FOID_PRD.md` — most "should we add X" questions were thought through there. If it's still unclear, ask the team before building, not after.
