@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import RemixIcon from './RemixIcon'
+import ChatMarkdown from './ChatMarkdown'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -238,11 +239,12 @@ export default function AiChat() {
   // ── Focus input ──────────────────────────────────────────────────────
   useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 120) }, [open])
 
+  // Skip the local greeting (index 0); the server caps and filters history too.
   function buildHistory(current: Message[]): ApiHistory[] {
-    return current.map(m => ({
+    return current.slice(1).slice(-12).map(m => ({
       role: m.role === 'ai' ? 'assistant' : 'user',
       content: m.text,
-    })) as ApiHistory[]
+    }))
   }
 
   async function send(text: string) {
@@ -262,7 +264,7 @@ export default function AiChat() {
       setCredits(res.data.credits_remaining)
       setMessages(prev => [...prev, { role: 'ai', text: res.data.reply }])
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
+      const axiosErr = err as { response?: { status?: number; data?: { detail?: unknown } } }
       if (axiosErr.response?.status === 402) {
         setCredits(0)
         setShowTopUp(true)
@@ -271,11 +273,12 @@ export default function AiChat() {
           text: "⚠️ You've used all your AI credits. Top up below to keep chatting — it's just ₦5 per message.",
         }])
       } else {
+        const detail = axiosErr.response?.data?.detail
         setMessages(prev => [...prev, {
           role: 'ai',
-          text: axiosErr.response?.data?.detail
-            ? `Error: ${axiosErr.response.data.detail}`
-            : 'Sorry, something went wrong. Please try again.',
+          text: typeof detail === 'string' && axiosErr.response?.status === 502
+            ? detail
+            : "Sorry, I couldn't answer that just now. Please try again in a moment.",
         }])
       }
     } finally {
@@ -350,13 +353,13 @@ export default function AiChat() {
               <div key={i} className={`flex gap-2.5 ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                 {m.role === 'ai' && <BotAvatar size={32} />}
                 <div
-                  className="rounded-2xl px-4 py-3 text-[13.5px] leading-relaxed max-w-[82%] whitespace-pre-wrap"
+                  className={`rounded-2xl px-4 py-3 text-[13.5px] leading-relaxed max-w-[82%] break-words ${m.role === 'user' ? 'whitespace-pre-wrap' : ''}`}
                   style={m.role === 'ai'
                     ? { background: '#f0f0f0', color: '#3a3a3a', borderBottomLeftRadius: 4 }
                     : { background: PURPLE, color: '#fff', borderBottomRightRadius: 4 }
                   }
                 >
-                  {m.text}
+                  {m.role === 'ai' ? <ChatMarkdown text={m.text} /> : m.text}
                 </div>
               </div>
             ))}
@@ -398,7 +401,7 @@ export default function AiChat() {
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && send(input)}
                   disabled={typing || credits === 0}
-                  placeholder={credits === 0 ? 'Top up credits to continue…' : 'Ask about your finances, identity or credit score'}
+                  placeholder={credits === 0 ? 'Top up credits to continue…' : 'Ask about your spending, tax or credential'}
                   className="flex-1 bg-transparent text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none disabled:opacity-50"
                 />
                 <button onClick={() => send(input)} disabled={typing || !input.trim() || credits === 0}

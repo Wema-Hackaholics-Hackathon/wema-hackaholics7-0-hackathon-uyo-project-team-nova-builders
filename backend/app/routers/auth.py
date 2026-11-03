@@ -31,6 +31,7 @@ from app.core.dependencies import get_current_user, require_verified_email
 from app.core.security import (
     create_access_token,
     create_refresh_token_expiry,
+    create_ticket,
     generate_refresh_token,
     hash_password,
     hash_refresh_token,
@@ -52,6 +53,7 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
+    LoginResponse,
     NinVerifyRequest,
     PhoneRequest,
     PROOF_OF_ADDRESS_ALLOWED_MIME,
@@ -71,6 +73,7 @@ from app.services.email_templates import (
     password_reset as _tpl_password_reset,
 )
 from app.utils.limiter import limiter
+from app.services.user_signin import complete_sign_in
 
 _PROOF_UPLOAD_DIR = Path("uploads/proof_of_address")
 _AVATAR_UPLOAD_DIR = Path("uploads/avatars")
@@ -233,14 +236,14 @@ async def signup(
 # POST /auth/login
 # ---------------------------------------------------------------------------
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=LoginResponse, response_model_exclude_none=True)
 @limiter.limit("10/minute")  # pyright: ignore[reportUnknownMemberType, reportUntypedFunctionDecorator]
 async def login(
-    request: Request,  # pyright: ignore[reportUnusedParameter] — slowapi requires this name
+    request: Request,
     body: LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> TokenResponse:
-    """Validate credentials and return tokens."""
+) -> LoginResponse:
+    """Validate credentials and return tokens — or, with two-factor on, a 5-minute ticket for /login/2fa."""
     result = await db.exec(select(User).where(User.email == body.email))
     user = result.first()
 
@@ -257,18 +260,11 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect password",
         )
+    if user.totp_enabled_at is not None:   # password was right; now the authenticator code
+        return LoginResponse(mfa_required=True, mfa_token=create_ticket(user.id, "user_mfa"))
 
-    access_token = create_access_token(user.id)
-    raw_refresh = generate_refresh_token()
-    refresh_row = RefreshToken(
-        user_id=user.id,
-        token_hash=hash_refresh_token(raw_refresh),
-        expires_at=create_refresh_token_expiry(),
-    )
-    db.add(refresh_row)
-    await db.commit()
-
-    return TokenResponse(access_token=access_token, refresh_token=raw_refresh)
+    access_token, raw_refresh = await complete_sign_in(db, user, request, body.device_id)
+    return LoginResponse(access_token=access_token, refresh_token=raw_refresh)
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +377,8 @@ async def me(
         email=user.email,
         created_at=user.created_at,
         email_verified=email_verified,
+        two_factor_enabled=user.totp_enabled_at is not None,
+        login_alerts=user.login_alerts,
     )
 
 

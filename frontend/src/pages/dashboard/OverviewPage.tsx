@@ -8,24 +8,29 @@ import { useNavigate } from 'react-router-dom'
 import RemixIcon from '@/components/RemixIcon'
 import StatCard from '@/components/StatCard'
 import IncomeExpenseChart from '@/components/IncomeExpenseChart'
+import FoidCodeModal from '@/components/FoidCodeModal'
 import { useCredential } from '@/contexts/CredentialContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useMonoData } from '@/hooks/useMonoData'
 import { api } from '@/lib/api'
-import type { CredentialState } from '@/types/foid'
+import type { ConnectedApp, CredentialState } from '@/types/foid'
 
 /* ── Brand colours ──────────────────────────────────────────────────── */
 const BRAND_LITE = '#f5d0fe'   // brand-200
 const BRAND_DEEP = '#a21caf'   // brand-600
 
-const CRED_MAX = 80
-const credentialUsageData = [
-  { platform: 'Wema',    pulls: 80 },
-  { platform: 'Carbon',  pulls: 35 },
-  { platform: 'Opay',    pulls: 68 },
-  { platform: 'Kuda',    pulls: 18 },
-  { platform: 'GT Bank', pulls: 22 },
-].map(d => ({ ...d, remainder: CRED_MAX - d.pulls }))
+/** Checks each business has run on you (GET /connected-apps), top 5, for the usage bar chart. */
+function usageData(apps: ConnectedApp[]) {
+  const by = new Map<string, number>()
+  for (const a of apps) {
+    const name = a.sandbox ? `${a.name} (test)` : a.name
+    by.set(name, (by.get(name) ?? 0) + a.checks.length + a.grants.length)
+  }
+  const rows = [...by.entries()].map(([platform, pulls]) => ({ platform, pulls }))
+    .filter(r => r.pulls > 0).sort((a, b) => b.pulls - a.pulls).slice(0, 5)
+  const max = Math.max(4, Math.ceil(Math.max(0, ...rows.map(r => r.pulls)) * 1.25))
+  return { max, rows: rows.map(r => ({ ...r, remainder: max - r.pulls })) }
+}
 
 /* ── Helpers ────────────────────────────────────────────────────────── */
 const naira = (n: number) => '₦' + n.toLocaleString('en-NG')
@@ -102,6 +107,7 @@ export default function OverviewPage() {
   const { credential, loading: credLoading } = useCredential()
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [showCode, setShowCode] = useState(false)
   const stateMeta = STATE_META[credential.state]
 
   const isVerified = user?.email_verified ?? false
@@ -113,6 +119,14 @@ export default function OverviewPage() {
     api.get<{ balance: number }>('/wallet')
       .then(r => setWalletBalance(r.data.balance))
       .catch(() => setWalletBalance(0))
+  }, [])
+
+  // ── Where the credential is used — real checks + shares per business ──
+  const [usage, setUsage] = useState<ReturnType<typeof usageData> | null>(null)
+  useEffect(() => {
+    api.get<ConnectedApp[]>('/connected-apps')
+      .then(r => setUsage(usageData(r.data)))
+      .catch(() => setUsage(usageData([])))
   }, [])
 
   // Build donut segments from real spend-by-category
@@ -144,6 +158,7 @@ export default function OverviewPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      {showCode && <FoidCodeModal onClose={() => setShowCode(false)} />}
 
       {/* ── Header ── */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
@@ -285,7 +300,7 @@ export default function OverviewPage() {
                 </div>
               </div>
             </div>
-            <button className="w-full mt-3 py-2.5 border border-neutral-200 rounded-xl text-[13.5px] font-semibold text-neutral-800 flex items-center justify-center gap-2 hover:bg-neutral-50 transition-colors">
+            <button onClick={() => setShowCode(true)} className="w-full mt-3 py-2.5 border border-neutral-200 rounded-xl text-[13.5px] font-semibold text-neutral-800 flex items-center justify-center gap-2 hover:bg-neutral-50 transition-colors">
               <RemixIcon name="ri-qr-code-line font-normal" size={18} color="#18181b" />
               View my FOID code
             </button>
@@ -295,20 +310,30 @@ export default function OverviewPage() {
         {/* Credential usage bar chart */}
         <div className="bg-white border border-neutral-200 rounded-2xl p-5">
           <div className="font-bold text-[15px] text-neutral-900 mb-0.5">Where your credential is used</div>
-          <div className="text-[12px] text-neutral-400 mb-4">Verification pulls by connected platforms</div>
+          <div className="text-[12px] text-neutral-400 mb-4">Identity checks and shares by each business</div>
+          {usage && usage.rows.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={credentialUsageData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }} barSize={44} barCategoryGap="20%">
+            <BarChart data={usage.rows} margin={{ top: 4, right: 4, bottom: 0, left: -20 }} barSize={44} barCategoryGap="20%">
               <CartesianGrid strokeDasharray="3 3" stroke="#f4f4f5" vertical={false} />
               <XAxis dataKey="platform" tick={{ fontSize: 11, fill: '#a1a1aa' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#a1a1aa' }} axisLine={false} tickLine={false} domain={[0, CRED_MAX]} />
+              <YAxis tick={{ fontSize: 11, fill: '#a1a1aa' }} axisLine={false} tickLine={false} domain={[0, usage.max]} allowDecimals={false} />
               <Tooltip
-                formatter={(val, name) => name === 'remainder' ? null : [val, 'Pulls']}
+                formatter={(val, name) => name === 'remainder' ? null : [val, 'Checks & shares']}
                 contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e4e4e7' }}
               />
               <Bar dataKey="pulls" stackId="a" fill={BRAND_DEEP} radius={[0, 0, 4, 4]} />
               <Bar dataKey="remainder" stackId="a" fill={BRAND_LITE} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex flex-col items-center justify-center text-center gap-2 text-neutral-400">
+              <RemixIcon name="ri-bar-chart-2-line" size={28} color="#d4d4d8" />
+              <div className="text-[13px]">{usage === null ? 'Loading…' : 'No business has checked your credential yet'}</div>
+              {usage !== null && (
+                <div className="text-[12px] max-w-[260px]">When a business verifies you with FOID, it shows up here.</div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Spending breakdown — live Mono categories */}

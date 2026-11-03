@@ -1,13 +1,17 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { User } from '../types/foid'
-import { api, apiErrorMessage, setTokens, clearTokens, restoreSession } from '../lib/api'
+import { api, apiErrorMessage, setTokens, clearTokens, restoreSession, deviceId } from '../lib/api'
+import { passkeyAssertion } from '../lib/passkey'
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
   loading: boolean
   /** ok, or the real reason it failed (server message, unreachable server, …) */
-  login: (email: string, password: string) => Promise<AuthResult>
+  /** With two-factor on, resolves to { ok: false, mfaToken } — then call completeMfa with the app code. */
+  login: (email: string, password: string) => Promise<LoginResult>
+  completeMfa: (mfaToken: string, code: string) => Promise<AuthResult>
+  loginWithPasskey: () => Promise<AuthResult>
   signup: (userData: {
     firstName: string
     lastName: string
@@ -23,6 +27,7 @@ interface AuthContextType {
 }
 
 export type AuthResult = { ok: true } | { ok: false; error: string }
+export type LoginResult = AuthResult | { ok: false; error: ''; mfaToken: string }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
@@ -85,20 +90,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const login = useCallback(async (email: string, password: string): Promise<AuthResult> => {
+  const adopt = useCallback(async (access: string, refresh: string) => {
+    setTokens(access, refresh)
+    const meRes = await api.get<Record<string, unknown>>('/auth/me')
+    setUser(normaliseUser(meRes.data))
+  }, [])
+
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     try {
-      const res = await api.post<{ access_token: string; refresh_token: string }>(
+      const res = await api.post<{ access_token?: string; refresh_token?: string; mfa_required?: boolean; mfa_token?: string }>(
         '/auth/login',
-        { email, password }
+        { email, password, device_id: deviceId() }
       )
-      setTokens(res.data.access_token, res.data.refresh_token)
-      const meRes = await api.get<Record<string, unknown>>('/auth/me')
-      setUser(normaliseUser(meRes.data))
+      if (res.data.mfa_required && res.data.mfa_token) return { ok: false, error: '', mfaToken: res.data.mfa_token }
+      await adopt(res.data.access_token ?? '', res.data.refresh_token ?? '')
       return { ok: true }
     } catch (err) {
       return { ok: false, error: apiErrorMessage(err) }
     }
-  }, [])
+  }, [adopt])
+
+  const completeMfa = useCallback(async (mfaToken: string, code: string): Promise<AuthResult> => {
+    try {
+      const res = await api.post<{ access_token: string; refresh_token: string }>(
+        '/auth/login/2fa', { mfa_token: mfaToken, code: code.replace(/\s/g, ''), device_id: deviceId() })
+      await adopt(res.data.access_token, res.data.refresh_token)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: apiErrorMessage(err) }
+    }
+  }, [adopt])
+
+  const loginWithPasskey = useCallback(async (): Promise<AuthResult> => {
+    try {
+      const t = await passkeyAssertion(deviceId())
+      await adopt(t.access_token, t.refresh_token)
+      return { ok: true }
+    } catch (err) {
+      if (err instanceof DOMException) return { ok: false, error: 'Passkey sign-in was cancelled or timed out.' }
+      return { ok: false, error: apiErrorMessage(err) }
+    }
+  }, [adopt])
 
   const logout = useCallback(async (): Promise<void> => {
     try {
@@ -157,6 +189,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: user !== null,
       loading,
       login,
+      completeMfa,
+      loginWithPasskey,
       signup,
       logout,
       refreshUser,

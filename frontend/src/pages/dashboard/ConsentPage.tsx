@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import RemixIcon from '@/components/RemixIcon'
 import StatCard from '@/components/StatCard'
 import SegmentedTabs from '@/components/SegmentedTabs'
@@ -148,7 +149,9 @@ const TABS: { key: Filter; label: string }[] = [
 /* ── Page ───────────────────────────────────────────────────────────── */
 export default function ConsentPage() {
   const [filter, setFilter] = useState<Filter>('all')
-  const [search, setSearch] = useState('')
+  const [params] = useSearchParams()
+  const [search, setSearch] = useState(params.get('q') ?? '')   // ?q= from the top-bar search
+  useEffect(() => { const q0 = params.get('q'); if (q0) setSearch(q0) }, [params])
   const { user } = useAuth()
   const isVerified = user?.email_verified ?? false
   const [apps, setApps] = useState<Consent[]>([])

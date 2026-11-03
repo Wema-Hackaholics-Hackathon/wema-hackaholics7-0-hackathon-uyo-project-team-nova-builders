@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import RemixIcon from '@/components/RemixIcon'
 import { api } from '@/lib/api'
 import type { ConnectedBank, MonoTransaction } from '@/types/foid'
@@ -50,7 +50,9 @@ export default function BankTransactionsPage() {
 
   // Filter state
   const [typeFilter, setTypeFilter] = useState<'all' | 'credit' | 'debit'>('all')
-  const [search, setSearch] = useState('')
+  const [params] = useSearchParams()
+  const [search, setSearch] = useState(params.get('q') ?? '')   // ?q= from the top-bar search
+  useEffect(() => { const q0 = params.get('q'); if (q0) setSearch(q0) }, [params])
 
   const load = useCallback(async () => {
     if (!bankId) return

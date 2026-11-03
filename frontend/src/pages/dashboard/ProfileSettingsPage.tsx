@@ -1,24 +1,28 @@
-import { useState, useRef } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import RemixIcon from '../../components/RemixIcon'
 import StatCard from '../../components/StatCard'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCredential } from '../../contexts/CredentialContext'
-import { api } from '../../lib/api'
+import { api, apiErrorMessage } from '../../lib/api'
+import { passkeysSupported, registerPasskey } from '../../lib/passkey'
+import TwoFactorModal from '../../components/TwoFactorModal'
 
 /* ── Toggle switch ───────────────────────────────────────────────────── */
-function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
+function Toggle({ on, onChange, disabled }: { on: boolean; onChange: () => void; disabled?: boolean }) {
   return (
     <button
       role="switch"
       aria-checked={on}
       onClick={onChange}
+      disabled={disabled}
       style={{
+        opacity: disabled ? 0.5 : 1,
         width: 48, height: 28, borderRadius: 999,
         background: on ? '#C800DE' : '#d4d4d8',
         position: 'relative', flexShrink: 0,
-        transition: 'background 200ms ease', border: 'none', padding: 0, cursor: 'pointer',
+        transition: 'background 200ms ease', border: 'none', padding: 0, cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     >
       <span style={{
@@ -43,14 +47,14 @@ function ReadField({ label, value }: { label: string; value: string }) {
 }
 
 /* ── Security toggle row ─────────────────────────────────────────────── */
-function SecurityRow({ label, sub, on, onChange }: { label: string; sub: string; on: boolean; onChange: () => void }) {
+function SecurityRow({ label, sub, on, onChange, disabled }: { label: string; sub: string; on: boolean; onChange: () => void; disabled?: boolean }) {
   return (
     <div className="flex items-center justify-between py-4 border-b border-neutral-100 last:border-0">
       <div>
         <div className="text-[13px] font-semibold text-neutral-900">{label}</div>
         <div className="text-[11px] text-neutral-400 mt-0.5">{sub}</div>
       </div>
-      <Toggle on={on} onChange={onChange} />
+      <Toggle on={on} onChange={onChange} disabled={disabled} />
     </div>
   )
 }
@@ -292,10 +296,44 @@ export default function ProfileSettingsPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showUtility, setShowUtility]   = useState(false)
 
-  /* Security toggles (UI-only for demo) */
-  const [twoFa, setTwoFa]         = useState(true)
-  const [biometric, setBiometric] = useState(true)
-  const [loginAlerts, setLogin]   = useState(true)
+  /* Security — GET /auth/me/security */
+  const [sec, setSec] = useState<{ two_factor_enabled: boolean; login_alerts: boolean; passkeys: { id: string }[] } | null>(null)
+  const [canPasskey, setCanPasskey] = useState(false)
+  const [twoFaModal, setTwoFaModal] = useState<'enable' | 'disable' | null>(null)
+  const [secBusy, setSecBusy]       = useState(false)
+  const [secError, setSecError]     = useState('')
+  const loadSec = useCallback(async () => {
+    try { setSec((await api.get('/auth/me/security')).data) } catch { /* shown as off */ }
+  }, [])
+  useEffect(() => { void loadSec(); void passkeysSupported().then(setCanPasskey) }, [loadSec])
+  const hasPasskey = (sec?.passkeys.length ?? 0) > 0
+
+  async function toggleBiometric() {
+    setSecError('')
+    setSecBusy(true)
+    try {
+      if (hasPasskey) {
+        if (!window.confirm('Turn off biometric unlock? You will sign in with your password instead.')) return
+        setSec((await api.delete('/auth/me/passkeys')).data)
+      } else {
+        await registerPasskey()
+        await loadSec()
+      }
+    } catch (e) {
+      setSecError(e instanceof DOMException ? 'Biometric setup was cancelled or timed out.' : apiErrorMessage(e))
+    } finally {
+      setSecBusy(false)
+    }
+  }
+
+  async function toggleLoginAlerts() {
+    setSecError('')
+    try {
+      setSec((await api.patch('/auth/me/security', { login_alerts: !(sec?.login_alerts ?? true) })).data)
+    } catch (e) {
+      setSecError(apiErrorMessage(e))
+    }
+  }
 
   /* Notification toggles (UI-only for demo) */
   const [verificationAlerts, setVerification] = useState(true)
@@ -412,10 +450,23 @@ export default function ProfileSettingsPage() {
         <div className="bg-white rounded-2xl border border-neutral-100 p-6 shadow-sm">
           <h2 className="text-[15px] font-bold text-neutral-900 mb-2">Security</h2>
           <div>
-            <SecurityRow label="Two-factor authentication" sub="Require a code from your phone when signing in" on={twoFa}       onChange={() => setTwoFa(v => !v)}     />
-            <SecurityRow label="Biometric unlock"          sub="Use Face ID / fingerprint on this device"       on={biometric}   onChange={() => setBiometric(v => !v)} />
-            <SecurityRow label="Login alerts"              sub="Email me when there's a new sign-in"            on={loginAlerts} onChange={() => setLogin(v => !v)}     />
+            <SecurityRow label="Two-factor authentication" sub="Require a code from your authenticator app when signing in"
+              on={!!sec?.two_factor_enabled} disabled={!sec}
+              onChange={() => setTwoFaModal(sec?.two_factor_enabled ? 'disable' : 'enable')} />
+            <SecurityRow label="Biometric unlock"
+              sub={canPasskey || hasPasskey
+                ? 'Sign in with Face ID / fingerprint / Windows Hello on this device'
+                : "Not available — this device has no fingerprint or face unlock"}
+              on={hasPasskey} disabled={!sec || secBusy || (!canPasskey && !hasPasskey)}
+              onChange={() => void toggleBiometric()} />
+            <SecurityRow label="Login alerts" sub="Email me when there's a sign-in from a new device"
+              on={sec?.login_alerts ?? true} disabled={!sec} onChange={() => void toggleLoginAlerts()} />
           </div>
+          {secError && <p className="text-[12px] text-red-600 mt-2">{secError}</p>}
+          {twoFaModal && (
+            <TwoFactorModal mode={twoFaModal} onClose={() => setTwoFaModal(null)}
+              onDone={() => { setTwoFaModal(null); void loadSec() }} />
+          )}
           <button
             onClick={() => setShowPassword(true)}
             className="mt-5 w-full rounded-xl border border-neutral-200 bg-white py-3 text-[13px] font-bold text-neutral-900 hover:bg-neutral-50 transition-colors flex items-center justify-center gap-2"

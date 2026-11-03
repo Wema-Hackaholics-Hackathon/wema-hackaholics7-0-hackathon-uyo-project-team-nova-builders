@@ -63,6 +63,12 @@ class User(SQLModel, table=True):
     liveness_verified_at: datetime | None = Field(default=None)
     email: str = Field(unique=True, index=True)
     hashed_password: str
+    # Two-step sign-in with an authenticator app (core/totp.py). Secret is Fernet-encrypted.
+    totp_secret_enc: str | None = Field(default=None)
+    totp_enabled_at: datetime | None = Field(default=None)
+    totp_last_step: int | None = Field(default=None)       # last accepted code step (no replay)
+    # Email + notify on a sign-in from a device we haven't seen (models/user_security.UserDevice)
+    login_alerts: bool = Field(default=True)
     # Admin flag — only True for platform staff; set directly in the DB or via seeding
     is_admin: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_now)

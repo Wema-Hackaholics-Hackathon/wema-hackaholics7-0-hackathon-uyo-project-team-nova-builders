@@ -74,6 +74,11 @@ function StepAction({
   const hint     = isPhone ? 'e.g. 08012345678 or +2348012345678' : '11-digit Bank Verification Number'
   const endpoint = isPhone ? '/auth/me/phone' : '/auth/me/bvn'
   const field    = isPhone ? 'phone' : 'bvn'
+  // BVN: exactly 11 digits. Phone: digits with an optional leading + (max 14 characters).
+  const clean    = (v: string) => isPhone
+    ? v.replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '').slice(0, 14)
+    : v.replace(/\D/g, '').slice(0, 11)
+  const ready    = isPhone ? value.replace(/\D/g, '').length >= 10 : value.length === 11
 
   async function handleSubmit() {
     setError('')
@@ -96,16 +101,18 @@ function StepAction({
       <input
         ref={inputRef}
         type="text"
+        inputMode={isPhone ? 'tel' : 'numeric'}
+        autoComplete="off"
         value={value}
-        onChange={e => setValue(e.target.value)}
+        onChange={e => setValue(clean(e.target.value))}
         placeholder={hint}
         className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-[14px] outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
-        onKeyDown={e => { if (e.key === 'Enter') void handleSubmit() }}
+        onKeyDown={e => { if (e.key === 'Enter' && ready) void handleSubmit() }}
       />
       {error && <p className="text-[12px] text-red-500">{error}</p>}
       <button
         onClick={() => void handleSubmit()}
-        disabled={loading || value.trim().length === 0}
+        disabled={loading || !ready}
         className="flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-brand-500 text-white text-[13px] font-semibold hover:bg-brand-600 transition-colors disabled:opacity-60"
       >
         {loading

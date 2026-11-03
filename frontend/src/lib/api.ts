@@ -18,6 +18,16 @@ let _refreshToken: string | null = null
 
 export const TOKEN_KEY = 'idra_refresh_token'
 
+/** Random id for this browser (localStorage) — lets the server spot sign-ins from new devices. */
+export function deviceId(): string {
+  let id = localStorage.getItem('foid_device_id')
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem('foid_device_id', id)
+  }
+  return id
+}
+
 export function setTokens(access: string, refresh: string) {
   _accessToken = access
   _refreshToken = refresh

@@ -190,6 +190,7 @@ async def health_check():
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(admin_router)
 v1_router.include_router(auth_router)
+v1_router.include_router(account_security_router)
 v1_router.include_router(banks_router)
 v1_router.include_router(business_router)
 v1_router.include_router(kyb_router)

@@ -4,6 +4,7 @@ Import each router here and add it to ``__all__`` so that
 ``from .routers import *`` in main.py picks it up for registration.
 """
 
+from .account_security import router as account_security_router
 from .admin import router as admin_router
 from .auth import router as auth_router
 from .banks import router as banks_router
@@ -27,6 +28,7 @@ from .reports import router as reports_router
 from .wallet import router as wallet_router
 
 __all__ = [
+    "account_security_router",
     "admin_router",
     "auth_router",
     "banks_router",

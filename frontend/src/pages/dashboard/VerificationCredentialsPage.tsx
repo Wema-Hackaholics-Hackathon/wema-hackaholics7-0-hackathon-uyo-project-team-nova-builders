@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import RemixIcon from '@/components/RemixIcon'
 import StatCard from '@/components/StatCard'
 import SegmentedTabs from '@/components/SegmentedTabs'
 import { useCredential } from '@/contexts/CredentialContext'
-import type { CredentialState } from '@/types/foid'
+import { api, apiErrorMessage } from '@/lib/api'
+import type { ConnectedApp, CredentialState } from '@/types/foid'
 
 
 /* ── Types ──────────────────────────────────────────────────────────── */
@@ -11,6 +13,8 @@ type CredentialStatus = 'active' | 'expiring' | 'revoked'
 
 interface Credential {
   id: string
+  orgId?: string          // set for businesses; the FOID master credential has none
+  label?: string          // badge text override (e.g. "Under Review")
   platform: string
   logo: string
   scope: string
@@ -19,46 +23,30 @@ interface Credential {
   status: CredentialStatus
 }
 
-/* ── Mock data ──────────────────────────────────────────────────────── */
-const CREDENTIALS: Credential[] = [
-  {
-    id: 'foid_cr_8x291a...e7d40',
-    platform: 'Wema Bank',
-    logo: '/wema.jpg',
-    scope: 'KYC · Full',
-    issued: '12 Jul 2026',
-    expires: '12 Jun 2027',
-    status: 'active',
-  },
-  {
-    id: 'foid_cr_8x291a...e7d40',
-    platform: 'GTBank',
-    logo: '/GTCO.jpg',
-    scope: 'Loan · Income verification',
-    issued: '03 Jul 2026',
-    expires: '03 Jul 2027',
-    status: 'active',
-  },
-  {
-    id: 'foid_cr_8x291a...e7d40',
-    platform: 'Opay',
-    logo: '/opay.png',
-    scope: 'Merchant KYC',
-    issued: '29 Aug 2025',
-    expires: '29 Jul 2026',
-    status: 'expiring',
-  },
-  {
-    id: 'foid_cr_8x291a...e7d40',
-    platform: 'Renmoney',
-    logo: '/renmoney.jpg',
-    scope: 'Full KYC + transactions',
-    issued: '02 Feb 2026',
-    expires: null,
-    status: 'revoked',
-  },
-]
+/* ── Real data: one credential per business you've shared with (GET /connected-apps) ── */
+const fmtDate = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
+/** foid_cr_8x291a…e7d40 — a readable short form of the consent grant id */
+function shortId(id: string): string {
+  const hex = id.replace(/-/g, '')
+  return `foid_cr_${hex.slice(0, 6)}…${hex.slice(-5)}`
+}
+
+function toCredential(app: ConnectedApp): Credential {
+  const first = app.grants[0]
+  return {
+    id: first ? shortId(first.id) : '—',
+    orgId: app.org_id,
+    platform: app.sandbox ? `${app.name} (sandbox)` : app.name,
+    logo: app.logo_url ?? '/logo.png',
+    scope: app.scopes.map(s => s.scope.charAt(0).toUpperCase() + s.scope.slice(1)).join(' · ')
+      || app.checks.map(c => c.type.toUpperCase()).join(' · ') || 'Identity checks',
+    issued: fmtDate(app.first_connected_at),
+    expires: null,
+    status: app.status === 'active' ? 'active' : 'revoked',
+  }
+}
 
 /* ── Status badge ───────────────────────────────────────────────────── */
 const STATUS_META: Record<CredentialStatus, { label: string; bg: string; color: string }> = {
@@ -67,25 +55,27 @@ const STATUS_META: Record<CredentialStatus, { label: string; bg: string; color: 
   revoked:  { label: 'Revoked',  bg: '#fee2e2', color: '#dc2626' },
 }
 
-function StatusBadge({ status }: { status: CredentialStatus }) {
+function StatusBadge({ status, label }: { status: CredentialStatus; label?: string }) {
   const m = STATUS_META[status]
   return (
     <span
       className="inline-flex items-center px-3 py-1 rounded-full text-[12px] font-semibold"
       style={{ background: m.bg, color: m.color }}
     >
-      {m.label}
+      {label ?? m.label}
     </span>
   )
 }
 
 /* ── Action button ──────────────────────────────────────────────────── */
-function ActionButton({ status }: { status: CredentialStatus }) {
-  const label   = status === 'expiring' ? 'Renew' : 'Revoke'
-  const disabled = status === 'revoked'
+function ActionButton({ cred, onRevoke, onOpen }: { cred: Credential; onRevoke: () => void; onOpen: () => void }) {
+  const master   = !cred.orgId
+  const label    = master ? 'View' : cred.status === 'revoked' ? 'Revoked' : 'Revoke'
+  const disabled = !master && cred.status === 'revoked'
   return (
     <button
       disabled={disabled}
+      onClick={master ? onOpen : onRevoke}
       className="px-4 py-1.5 rounded-full border border-neutral-200 text-[12px] font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
     >
       {label}
@@ -121,8 +111,52 @@ const FOID_STATE_LABELS: Record<CredentialState, string> = {
 /* ── Page ───────────────────────────────────────────────────────────── */
 export default function VerificationCredentialsPage() {
   const { credential } = useCredential()
+  const navigate = useNavigate()
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
+  const [apps, setApps] = useState<Credential[] | null>(null)   // null = loading
+  const [error, setError] = useState('')
+  const [downloading, setDownloading] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      setApps((await api.get<ConnectedApp[]>('/connected-apps')).data.map(toCredential))
+      setError('')
+    } catch (e) {
+      setApps([])
+      setError(apiErrorMessage(e, 'Could not load where your credential is shared.'))
+    }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  async function revoke(cred: Credential) {
+    if (!cred.orgId) return
+    if (!window.confirm(`Revoke ${cred.platform}'s access? They will stop receiving any of your data.`)) return
+    try {
+      await api.delete(`/connected-apps/${cred.orgId}`)
+      await load()
+    } catch (e) {
+      window.alert(apiErrorMessage(e, 'Could not revoke access. Please try again.'))
+    }
+  }
+
+  async function downloadSummary() {
+    setDownloading(true)
+    try {
+      const res = await api.get<Blob>('/auth/me/identity-summary', { responseType: 'blob' })
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'FOID_Identity_Summary.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      window.alert(apiErrorMessage(e, 'Could not download your identity summary.'))
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   /* Inject the live FOID master credential as the first row */
   const foidEntry: Credential = {
@@ -133,9 +167,13 @@ export default function VerificationCredentialsPage() {
     issued: new Date(credential.issued_at).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' }),
     expires: null,
     status: FOID_STATE_TO_STATUS[credential.state],
+    label: FOID_STATE_LABELS[credential.state],
   }
 
-  const allCredentials = [foidEntry, ...CREDENTIALS]
+  const shared = apps ?? []
+  const allCredentials = credential.id ? [foidEntry, ...shared] : shared
+  const count = (st: CredentialStatus) => allCredentials.filter(c => c.status === st).length
+  const activeApps = shared.filter(c => c.status === 'active').length
 
   const visible = allCredentials.filter(c => {
     if (filter !== 'all' && c.status !== filter) return false
@@ -152,8 +190,9 @@ export default function VerificationCredentialsPage() {
           <h1 className="text-[22px] md:text-[26px] font-bold tracking-tight text-neutral-900">Verification Credentials</h1>
           <p className="text-neutral-500 mt-1 text-[13.5px]">Every credential generated from your FOID identity, and where it's been shared</p>
         </div>
-        <button className="flex items-center gap-2 px-5 py-2.5 border border-neutral-200 rounded-full font-semibold text-[14px] text-neutral-800 bg-white hover:bg-neutral-50 transition-colors shrink-0 self-start">
-          <RemixIcon name="ri-download-2-line" size={20} /> Download Identity Summary
+        <button onClick={() => void downloadSummary()} disabled={downloading}
+          className="flex items-center gap-2 px-5 py-2.5 border border-neutral-200 rounded-full font-semibold text-[14px] text-neutral-800 bg-white hover:bg-neutral-50 transition-colors shrink-0 self-start disabled:opacity-60">
+          <RemixIcon name="ri-download-2-line" size={20} /> {downloading ? 'Preparing…' : 'Download Identity Summary'}
         </button>
       </div>
 
@@ -179,10 +218,15 @@ export default function VerificationCredentialsPage() {
 
       {/* ── Stat cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Active Credentials" value="6"       sub="Shared across 6 platforms"      subColor="text-neutral-400"             icon="ri-file-text-fill"         />
-        <StatCard label="Shared With"        value="6 apps"  sub="Banks, loans & merchants"     subColor="text-neutral-400"             icon="ri-user-shared-2-fill" />
-        <StatCard label="Expiring Soon"      value="1"       sub="Renew within 30 days"      subColor="text-green-600 font-semibold" icon="ri-alarm-warning-fill"  />
-        <StatCard label="Revoked"            value="2"       sub="Access removed by you"           subColor="text-neutral-400"             icon="ri-close-circle-fill"    />
+        <StatCard label="Active Credentials" value={apps === null ? '…' : String(count('active'))}
+          sub={activeApps ? `Shared with ${activeApps} business${activeApps === 1 ? '' : 'es'}` : 'Not shared with any business yet'}
+          subColor="text-neutral-400" icon="ri-file-text-fill" />
+        <StatCard label="Shared With" value={apps === null ? '…' : `${activeApps} app${activeApps === 1 ? '' : 's'}`}
+          sub="Businesses that can see your data" subColor="text-neutral-400" icon="ri-user-shared-2-fill" />
+        <StatCard label="Expiring Soon" value={apps === null ? '…' : String(count('expiring'))}
+          sub="Shares don't expire until you revoke them" subColor="text-neutral-400" icon="ri-alarm-warning-fill" />
+        <StatCard label="Revoked" value={apps === null ? '…' : String(count('revoked'))}
+          sub="Access removed" subColor="text-neutral-400" icon="ri-close-circle-fill" />
       </div>
 
       {/* ── Table card ── */}
@@ -260,16 +304,20 @@ export default function VerificationCredentialsPage() {
                 <td className="px-6 py-5   text-neutral-500 whitespace-nowrap">{cred.expires ?? '—'}</td>
 
                 {/* Status */}
-                <td className="px-6 py-5"><StatusBadge status={cred.status} /></td>
+                <td className="px-6 py-5"><StatusBadge status={cred.status} label={cred.label} /></td>
 
                 {/* Actions */}
-                <td className="px-6 py-5"><ActionButton status={cred.status} /></td>
+                <td className="px-6 py-5">
+                  <ActionButton cred={cred} onRevoke={() => void revoke(cred)} onOpen={() => navigate('/dashboard/identity')} />
+                </td>
               </tr>
             ))}
             {visible.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-6 py-12 text-center text-neutral-400">
-                  No credentials match your filter.
+                  {apps === null ? 'Loading…' : error || (allCredentials.length === 0
+                    ? "You haven't shared your FOID credential with any business yet."
+                    : 'No credentials match your filter.')}
                 </td>
               </tr>
             )}

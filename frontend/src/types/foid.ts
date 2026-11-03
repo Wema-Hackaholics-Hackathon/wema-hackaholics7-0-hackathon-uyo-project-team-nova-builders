@@ -61,6 +61,8 @@ export interface User {
   bvn?: string | null
   /** When the BVN matched the registry under the verified name */
   bvn_verified_at?: string | null
+  two_factor_enabled?: boolean
+  login_alerts?: boolean
   phone?: string | null
   address?: string | null
   /** Authenticated URL of the enrolled face record (null until enrolled) */

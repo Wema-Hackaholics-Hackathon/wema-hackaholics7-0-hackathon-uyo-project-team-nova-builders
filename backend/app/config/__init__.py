@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # If blank, all emails are printed to the terminal (dev console mode).
     RESEND_API_KEY: str = ""
     FROM_EMAIL: str = "FOID <onboarding@resend.dev>"   # override with your verified domain
+    EMAIL_LOGO_URL: str = ""            # public https URL of the logo; blank = inline attachment (works on localhost)
 
     # Bachs payment provider
     BACHS_API_KEY: str = ""             # sk_sandbox_... or sk_live_...

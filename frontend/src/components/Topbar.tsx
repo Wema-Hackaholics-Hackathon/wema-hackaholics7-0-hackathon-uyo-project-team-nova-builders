@@ -1,5 +1,6 @@
 import RemixIcon from './RemixIcon'
 import NotificationBell from './NotificationBell'
+import GlobalSearch from './GlobalSearch'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
@@ -19,15 +20,7 @@ export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
       </button>
 
       {/* Search - hidden on mobile */}
-      <div className="relative flex-1 max-w-[500px] hidden md:flex justify-center py-2">
-        <RemixIcon name="ri-search-fill" size={20} color="#a1a1aa" className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-        <input
-          type="text"
-          placeholder="Search your credentials, banks, transactions"
-          aria-label="Search"
-          className="w-full pl-11 pr-4 py-2 rounded-full bg-neutral-100 text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:border-brand-400"
-        />
-      </div>
+      <GlobalSearch />
 
       {/* Actions */}
       <div className="ml-auto flex items-center gap-3">

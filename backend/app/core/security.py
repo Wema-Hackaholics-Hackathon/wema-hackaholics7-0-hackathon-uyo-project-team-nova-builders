@@ -109,3 +109,17 @@ def decode_console_access_token(token: str, kind: str = "console") -> str:
     if not isinstance(sub, str):
         raise JWTError("missing sub claim")
     return sub
+
+
+# ---------------------------------------------------------------------------
+# Short-lived single-purpose tickets (user 2FA step, passkey challenges).
+# `kind` is checked on decode, so a ticket is never accepted as a session token.
+# ---------------------------------------------------------------------------
+
+def create_ticket(sub: str, kind: str, minutes: int = 5) -> str:
+    return create_console_access_token(sub, kind, minutes=minutes)
+
+
+def decode_ticket(token: str, kind: str) -> str:
+    """The ticket's subject. Raises ``jose.JWTError`` if expired, tampered or of another kind."""
+    return decode_console_access_token(token, kind)

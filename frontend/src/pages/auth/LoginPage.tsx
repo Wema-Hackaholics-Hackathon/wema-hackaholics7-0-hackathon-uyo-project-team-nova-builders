@@ -1,21 +1,30 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import FoidWordmark from '@/components/FoidWordmark'
+import { passkeysSupported } from '@/lib/passkey'
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const { login, isAuthenticated } = useAuth()
+  // Back to the page that sent us here (ProtectedRoute), else the dashboard
+  const from = (useLocation().state as { from?: string } | null)?.from ?? '/dashboard'
+  const { login, completeMfa, loginWithPasskey, isAuthenticated } = useAuth()
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({ email: '', password: '' })
+  const [mfaToken, setMfaToken] = useState('')     // set after the password when two-factor is on
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [canPasskey, setCanPasskey] = useState(false)
+
+  useEffect(() => { void passkeysSupported().then(setCanPasskey) }, [])
 
   // Redirect if already authenticated — must be in useEffect, never during render
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/dashboard', { replace: true })
+      navigate(from, { replace: true })
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, navigate, from])
 
   const set = (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
@@ -24,13 +33,39 @@ export default function LoginPage() {
     e.preventDefault()
     setError('')
 
+    setBusy(true)
     const result = await login(form.email, form.password)
+    setBusy(false)
 
     if (result.ok) {
-      navigate('/dashboard')
+      navigate(from)
+    } else if ('mfaToken' in result) {
+      setMfaToken(result.mfaToken)
     } else {
       setError(result.error)
     }
+  }
+
+  const handleCode = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    const result = await completeMfa(mfaToken, code)
+    setBusy(false)
+    if (result.ok) navigate(from)
+    else {
+      setError(result.error)
+      if (/expired/i.test(result.error)) { setMfaToken(''); setCode('') }
+    }
+  }
+
+  const handlePasskey = async () => {
+    setError('')
+    setBusy(true)
+    const result = await loginWithPasskey()
+    setBusy(false)
+    if (result.ok) navigate(from)
+    else setError(result.error)
   }
 
   return (
@@ -93,7 +128,36 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Form */}
+          {mfaToken ? (
+          <form onSubmit={e => void handleCode(e)} noValidate className="flex flex-col" style={{ gap: 'clamp(14px, 2.4vh, 24px)' }}>
+            <Field label="Authenticator code" required>
+              <input
+                id="login-2fa-code"
+                autoFocus
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123456"
+                maxLength={6}
+                value={code}
+                onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="w-full border border-neutral-200 rounded-lg px-4 py-3 text-[15px] tracking-[0.3em] text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-[#C800DE] transition-colors bg-white"
+              />
+            </Field>
+            <p className="text-[12.5px] text-neutral-500 -mt-2">Open your authenticator app (Google Authenticator, Authy, …) and enter the 6-digit code for FOID.</p>
+            <button
+              type="submit"
+              disabled={busy || code.length !== 6}
+              className="w-full py-3.5 rounded-xl text-white font-bold text-[15px] tracking-wide transition-opacity hover:opacity-90 disabled:opacity-60"
+              style={{ background: 'linear-gradient(90deg, #C800DE 0%, #9000A8 100%)' }}
+            >
+              {busy ? 'Checking…' : 'Verify and log in'}
+            </button>
+            <button type="button" onClick={() => { setMfaToken(''); setCode(''); setError('') }}
+              className="text-center text-[13px] font-semibold text-[#C800DE] hover:opacity-80">
+              Use a different account
+            </button>
+          </form>
+          ) : (
           <form
             onSubmit={handleSubmit}
             noValidate
@@ -169,8 +233,23 @@ export default function LoginPage() {
               className="w-full py-3.5 rounded-xl text-white font-bold text-[15px] tracking-wide transition-opacity hover:opacity-90"
               style={{ background: 'linear-gradient(90deg, #C800DE 0%, #9000A8 100%)' }}
             >
-              Log In
+              {busy ? 'Logging in…' : 'Log In'}
             </button>
+
+            {canPasskey && (
+              <button
+                type="button"
+                id="login-passkey"
+                onClick={() => void handlePasskey()}
+                disabled={busy}
+                className="w-full py-3 rounded-xl border border-neutral-200 text-[14px] font-semibold text-neutral-800 hover:bg-neutral-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 -mt-2"
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M12 11c0 3.5-1 6.5-3 9M8 7.5A5 5 0 0 1 17 10c0 2-.2 4-.8 6M5 10a7 7 0 0 1 1.4-4.2M12 11a1 1 0 0 0-1 1" />
+                </svg>
+                Log in with fingerprint or face
+              </button>
+            )}
 
             {/* Create account */}
             <p className="text-center text-[13px] text-neutral-600">
@@ -183,6 +262,7 @@ export default function LoginPage() {
               </Link>
             </p>
           </form>
+          )}
         </div>
       </div>
     </div>

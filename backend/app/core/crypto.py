@@ -48,8 +48,9 @@ def decrypt_bytes(token: bytes) -> bytes:
     return _fernet().decrypt(token)
 
 
-def decrypt_str(token: str) -> str:
-    return _fernet().decrypt(token.encode()).decode()
+def decrypt_str(token: str, ttl: int | None = None) -> str:
+    """`ttl` (seconds): reject tokens older than this (InvalidToken), using the time inside the token."""
+    return _fernet().decrypt(token.encode(), ttl=ttl).decode()
 
 
 @lru_cache

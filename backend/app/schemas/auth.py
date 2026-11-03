@@ -14,7 +14,7 @@ import re
 from datetime import datetime
 from typing import ClassVar
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class SignupRequest(BaseModel):
@@ -61,6 +61,17 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # Random per-browser id the app keeps in localStorage — for "new device" login alerts
+    device_id: str | None = Field(default=None, max_length=100)
+
+
+class LoginResponse(BaseModel):
+    """Tokens, or {mfa_required, mfa_token} when two-factor authentication is on."""
+    access_token: str | None = None
+    refresh_token: str | None = None
+    token_type: str = "bearer"
+    mfa_required: bool = False
+    mfa_token: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -96,6 +107,8 @@ class UserOut(BaseModel):
     created_at: datetime
     # Derived from credential claims — True once POST /auth/verify-email succeeds
     email_verified: bool = False
+    two_factor_enabled: bool = False
+    login_alerts: bool = True
 
 
 class NinVerifyRequest(BaseModel):

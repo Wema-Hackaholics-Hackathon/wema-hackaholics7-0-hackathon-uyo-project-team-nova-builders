@@ -11,35 +11,34 @@ Each function returns a (subject, html) tuple.
 
 from __future__ import annotations
 
-import base64
 from html import escape
 from pathlib import Path
 
 
-def _load_logo_b64() -> str:
-    """Read logo-white.png from the repo and return a base64 data-URI.
+LOGO_CID = "foid-logo"
 
-    Search order:
-      1. frontend/public/logo-white.png  (relative to this file's location)
-      2. Bundled fallback path (Docker / installed package)
 
-    Returns an empty string if the file cannot be found so templates still
-    render — just without the logo image.
-    """
+def _load_logo() -> bytes | None:
+    """logo-white.png from the repo (frontend/public) or next to this module; None if missing."""
     candidates = [
-        # Running from backend-2/ (normal dev / Docker)
         Path(__file__).resolve().parents[3] / "frontend" / "public" / "logo-white.png",
-        # Installed package — logo copied next to this module
         Path(__file__).resolve().parent / "logo-white.png",
     ]
     for path in candidates:
         if path.exists():
-            data = path.read_bytes()
-            return "data:image/png;base64," + base64.b64encode(data).decode()
-    return ""   # graceful degradation — img tag will just show alt text
+            return path.read_bytes()
+    return None
 
 
-_LOGO_B64 = _load_logo_b64()
+# Sent as an inline (cid:) attachment by email_service. Gmail and Outlook block
+# data: URIs and can't reach localhost, so neither of those shows the logo.
+LOGO_PNG = _load_logo()
+
+
+def _logo_src() -> str:
+    """EMAIL_LOGO_URL (a public https image) if set, otherwise the inline attachment."""
+    from app.config import get_settings
+    return get_settings().EMAIL_LOGO_URL or (f"cid:{LOGO_CID}" if LOGO_PNG else "")
 
 _PURPLE     = "#C800DE"
 _PURPLE_MID = "#9b00d9"
@@ -82,7 +81,7 @@ def _base(*, preheader: str, body_html: str) -> str:
               <table cellpadding="0" cellspacing="0" border="0" width="100%">
                 <tr>
                   <td style="vertical-align:middle;">
-                    <img src="{_LOGO_B64}" alt="FOID" width="24" height="32"
+                    <img src="{_logo_src()}" alt="FOID" width="24" height="32"
                          style="display:inline-block;vertical-align:middle;margin-right:10px;" />
                     <span style="font-size:22px;font-weight:900;color:#ffffff;vertical-align:middle;letter-spacing:-0.3px;">FOID</span>
                   </td>
@@ -285,5 +284,21 @@ def api_key_alert(*, to: str, org_name: str, actor: str, env: str, key_name: str
         + _p(f"<strong>{escape(actor)}</strong> created the {escape(env)} key <strong>{escape(key_name)}</strong> "
              f"(<code>{escape(hint)}</code>) for {escape(org_name)}.")
         + _p("If that wasn't expected, revoke it in FOID Console → API keys & webhooks.", muted=True, size=13)
+    )
+    return subject, _base(preheader=subject, body_html=body).replace("__RECIPIENT__", to)
+
+
+def login_alert(*, to: str, first_name: str, when: str, device: str, ip: str, reset_url: str) -> tuple[str, str]:
+    """A sign-in from a device FOID hasn't seen on this account before."""
+    subject = "New sign-in to your FOID account"
+    body = (
+        _h1("New sign-in to FOID")
+        + _p(f"Hi {escape(first_name)}, your account was just signed in to from a device we haven't seen before.")
+        + _p(f"<strong>When:</strong> {escape(when)}<br><strong>Device:</strong> {escape(device)}"
+             f"<br><strong>IP address:</strong> {escape(ip)}", size=14)
+        + _p("If this was you, you don't need to do anything.")
+        + _p("If it wasn't, reset your password now and turn on two-factor authentication in Settings.", size=14)
+        + _cta_button(reset_url, "Reset my password")
+        + _p("You can turn these emails off in Settings → Security → Login alerts.", muted=True, size=13)
     )
     return subject, _base(preheader=subject, body_html=body).replace("__RECIPIENT__", to)

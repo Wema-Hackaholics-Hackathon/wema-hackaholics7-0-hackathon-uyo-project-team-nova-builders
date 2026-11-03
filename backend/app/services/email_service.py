@@ -25,8 +25,11 @@ Usage
 from __future__ import annotations
 
 import asyncio
+import base64
 import textwrap
 from datetime import datetime, timezone
+
+from app.services.email_templates import LOGO_CID, LOGO_PNG
 
 
 async def send_email(
@@ -91,7 +94,7 @@ async def _send_via_resend(
 
     def _sync_send() -> None:
         resend.api_key = api_key
-        payload: dict[str, str] = {
+        payload: dict[str, object] = {
             "from": from_email,
             "to": to,
             "subject": subject,
@@ -99,6 +102,11 @@ async def _send_via_resend(
         }
         if html:
             payload["html"] = html
+            if f"cid:{LOGO_CID}" in html and LOGO_PNG:
+                payload["attachments"] = [{   # inline logo — see email_templates._logo_src
+                    "filename": "foid-logo.png", "content": base64.b64encode(LOGO_PNG).decode(),
+                    "content_type": "image/png", "content_id": LOGO_CID,
+                }]
         resend.Emails.send(payload)  # type: ignore[attr-defined]
 
     await asyncio.to_thread(_sync_send)
