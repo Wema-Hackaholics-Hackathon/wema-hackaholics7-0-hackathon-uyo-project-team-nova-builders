@@ -20,6 +20,7 @@ import LandingPage from './pages/LandingPage.tsx'
 import HostedVerificationPage from './pages/verify/HostedVerificationPage.tsx'
 import LivenessHandoffPage from './liveness/LivenessHandoffPage.tsx'
 import FoidCodePage from './pages/FoidCodePage.tsx'
+import AuthorizePage from './pages/oauth/AuthorizePage.tsx'
 import { CredentialProvider } from './contexts/CredentialContext.tsx'
 
 export default function App() {
@@ -41,6 +42,9 @@ export default function App() {
       <Route path="/liveness/:token" element={<LivenessHandoffPage />} />
       {/* Someone scanned a FOID code (View my FOID code) — no login */}
       <Route path="/c/:token" element={<FoidCodePage />} />
+      {/* "Continue with FOID" popup (opened by a business's app) — signs in inside */}
+      <Route path="/oauth/authorize" element={<AuthorizePage />} />
+      <Route path="/oauth/continue/:rid" element={<AuthorizePage />} />
 
       <Route path="/dashboard" element={
         <ProtectedRoute>

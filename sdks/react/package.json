@@ -1,0 +1,15 @@
+{
+  "name": "@foid/react",
+  "version": "0.1.0",
+  "description": "Continue with FOID — React button, hook and provider (popup sign-in with PKCE)",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
+    "./core": { "types": "./src/core.d.ts", "default": "./src/core.js" }
+  },
+  "peerDependencies": { "react": ">=17" },
+  "files": ["src", "README.md"],
+  "license": "MIT"
+}

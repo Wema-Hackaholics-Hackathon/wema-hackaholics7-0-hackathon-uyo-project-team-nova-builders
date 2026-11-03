@@ -218,7 +218,7 @@ export interface ConnectedApp {
     id: string
     scopes: string[]
     purpose: string
-    source: 'hosted_flow' | 'business_attested'
+    source: 'hosted_flow' | 'business_attested' | 'foid_oauth'
     status: 'active' | 'revoked'
     granted_at: string | null
     revoked_at: string | null

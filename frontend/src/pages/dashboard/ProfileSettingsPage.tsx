@@ -8,6 +8,7 @@ import { useCredential } from '../../contexts/CredentialContext'
 import { api, apiErrorMessage } from '../../lib/api'
 import { passkeysSupported, registerPasskey } from '../../lib/passkey'
 import TwoFactorModal from '../../components/TwoFactorModal'
+import { PasswordChecklist, PasswordMatch, passwordOk } from '../../components/PasswordRules'
 
 /* ── Toggle switch ───────────────────────────────────────────────────── */
 function Toggle({ on, onChange, disabled }: { on: boolean; onChange: () => void; disabled?: boolean }) {
@@ -116,10 +117,10 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
         ) : (
           <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-4">
             {[
-              { label: 'Current password', val: current, set: setCurrent },
-              { label: 'New password',     val: next,    set: setNext    },
-              { label: 'Confirm new',      val: confirm, set: setConfirm },
-            ].map(({ label, val, set }) => (
+              { label: 'Current password', val: current, set: setCurrent, hint: null },
+              { label: 'New password',     val: next,    set: setNext,    hint: <PasswordChecklist password={next} /> },
+              { label: 'Confirm new',      val: confirm, set: setConfirm, hint: <PasswordMatch password={next} confirm={confirm} /> },
+            ].map(({ label, val, set, hint }) => (
               <div key={label}>
                 <label className="block text-[13px] font-medium text-neutral-800 mb-1.5">{label}</label>
                 <input
@@ -129,6 +130,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
                   required
                   className="w-full rounded-xl border border-neutral-200 px-4 py-2.5 text-[13px] outline-none focus:border-[#C800DE] transition-colors"
                 />
+                {hint}
               </div>
             ))}
             {error && <p className="text-[12.5px] text-red-600">{error}</p>}
@@ -138,7 +140,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || !current || !passwordOk(next) || next !== confirm}
                 className="flex-1 py-2.5 rounded-full text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
                 style={{ background: 'linear-gradient(90deg, #C800DE 0%, #9000A8 100%)' }}
               >

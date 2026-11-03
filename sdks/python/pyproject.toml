@@ -1,0 +1,15 @@
+[project]
+name = "foid"
+version = "0.1.0"
+description = "FOID server SDK — Continue with FOID (OAuth code exchange), Open API, webhook signatures"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+# private_key_jwt (key pair instead of a client secret) and `python -m foid keygen`
+keypair = ["cryptography>=42"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

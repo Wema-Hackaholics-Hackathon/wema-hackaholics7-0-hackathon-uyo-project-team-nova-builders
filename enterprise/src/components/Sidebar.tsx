@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { to: '/',          icon: 'ri-dashboard-fill',     label: 'Overview'            },
   { to: '/users',     icon: 'ri-group-line',         label: 'Users', badge: true },
   { to: '/api-keys',  icon: 'ri-key-2-line',         label: 'API keys & webhooks' },
+  { to: '/apps',      icon: 'ri-login-circle-line',  label: 'Sign-in apps'        },
   { to: '/logs',      icon: 'ri-terminal-box-line',  label: 'Request logs'        },
   { to: '/billing',   icon: 'ri-file-list-3-line',   label: 'Usage & Billing'     },
   { to: '/team',      icon: 'ri-team-line',          label: 'Team'                },

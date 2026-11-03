@@ -1,0 +1,13 @@
+{
+  "name": "@foid/node",
+  "version": "0.1.0",
+  "description": "FOID server SDK — Continue with FOID (OAuth code exchange), Open API, webhook signatures",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": { ".": { "types": "./src/index.d.ts", "default": "./src/index.js" } },
+  "bin": { "foid": "./bin/foid.js" },
+  "engines": { "node": ">=18" },
+  "files": ["src", "bin", "README.md"],
+  "license": "MIT"
+}

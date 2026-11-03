@@ -3,6 +3,7 @@ import DashboardLayout from '@/layouts/DashboardLayout'
 import OverviewPage from '@/pages/OverviewPage'
 import UsersPage from '@/pages/UsersPage'
 import ApiKeysPage from '@/pages/ApiKeysPage'
+import AppsPage from '@/pages/AppsPage'
 import RequestLogsPage from '@/pages/RequestLogsPage'
 import BillingPage from '@/pages/BillingPage'
 import TeamPage from '@/pages/TeamPage'
@@ -28,6 +29,7 @@ export default function App() {
         <Route index element={<OverviewPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="api-keys" element={<ApiKeysPage />} />
+        <Route path="apps" element={<AppsPage />} />
         <Route path="logs" element={<RequestLogsPage />} />
         <Route path="billing" element={<BillingPage />} />
         <Route path="team" element={<TeamPage />} />

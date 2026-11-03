@@ -8,7 +8,7 @@
  * redirect to the business's return_url.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import FoidWordmark from '@/components/FoidWordmark'
 import LivenessStage, { FAILURES, type LivenessResult, type StartedSession } from '@/liveness/LivenessStage'
 import RemixIcon from '@/components/RemixIcon'
@@ -147,6 +147,7 @@ function NumberStep({ step, base, onDone }: { step: HostedStep; base: string; on
 export default function HostedVerificationPage() {
   const { token = '' } = useParams()
   const { isAuthenticated, user } = useAuth()
+  const here = useLocation()
   const base = `/hosted/sessions/${token}`
 
   const [session, setSession] = useState<HostedSession | null>(null)
@@ -302,6 +303,13 @@ export default function HostedVerificationPage() {
                   <RemixIcon name="ri-shield-check-line" size={16} color="#a21caf" />
                   Use my verified FOID identity{user ? ` (${user.firstName})` : ''}
                 </button>
+              )}
+              {!isAuthenticated && steps.some(s => s.status === 'pending') && (
+                <Link to="/login" state={{ from: here.pathname + here.search }}
+                  className="flex items-center justify-center gap-2 py-2.5 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 text-[13.5px] font-semibold hover:bg-brand-100">
+                  <RemixIcon name="ri-shield-check-line" size={16} color="#a21caf" />
+                  Already have FOID? Sign in to share it instead
+                </Link>
               )}
               {notice && <p className="text-[12.5px] text-neutral-600">{notice}</p>}
 

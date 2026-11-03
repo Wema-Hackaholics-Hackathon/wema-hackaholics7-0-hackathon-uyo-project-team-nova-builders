@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import FoidWordmark from '@/components/FoidWordmark'
+import { PasswordChecklist, PasswordMatch, passwordOk } from '@/components/PasswordRules'
 
 const BASE = '/api/v1/auth'
 
@@ -239,6 +240,7 @@ export default function ForgotPasswordPage() {
                     />
                     <EyeToggle show={showPwd} onToggle={() => setShowPwd(v => !v)} />
                   </div>
+                  <PasswordChecklist password={newPassword} />
                 </Field>
                 <Field label="Confirm new password" required>
                   <input
@@ -249,8 +251,10 @@ export default function ForgotPasswordPage() {
                     required
                     className="w-full border border-neutral-200 rounded-lg px-4 py-3 text-[13px] text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-[#C800DE] transition-colors bg-white"
                   />
+                  <PasswordMatch password={newPassword} confirm={confirmPassword} />
                 </Field>
-                <SubmitButton loading={loading} label="Reset password" />
+                <SubmitButton loading={loading} label="Reset password"
+                  disabled={!passwordOk(newPassword) || newPassword !== confirmPassword} />
               </form>
             </>
           )}
@@ -311,11 +315,11 @@ function ErrorBox({ message }: { message: string }) {
   )
 }
 
-function SubmitButton({ loading, label }: { loading: boolean; label: string }) {
+function SubmitButton({ loading, label, disabled }: { loading: boolean; label: string; disabled?: boolean }) {
   return (
     <button
       type="submit"
-      disabled={loading}
+      disabled={loading || disabled}
       className="w-full py-3.5 rounded-xl text-white font-bold text-[15px] tracking-wide transition-opacity hover:opacity-90 disabled:opacity-60"
       style={{ background: 'linear-gradient(90deg,#C800DE,#9000A8)' }}
     >

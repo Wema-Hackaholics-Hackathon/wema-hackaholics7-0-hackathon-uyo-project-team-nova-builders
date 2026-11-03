@@ -16,6 +16,7 @@ const PAGES: { to: string; icon: string; title: string; keywords: string }[] = [
   { to: '/', icon: 'ri-dashboard-fill', title: 'Overview', keywords: 'home dashboard stats activity' },
   { to: '/users', icon: 'ri-group-line', title: 'Users', keywords: 'people customers verified subjects consent export' },
   { to: '/api-keys', icon: 'ri-key-2-line', title: 'API keys & webhooks', keywords: 'api key secret webhook rotate revoke developer' },
+  { to: '/apps', icon: 'ri-login-circle-line', title: 'Sign-in apps', keywords: 'continue with foid oauth client id secret redirect origin login' },
   { to: '/logs', icon: 'ri-terminal-box-line', title: 'Request logs', keywords: 'logs requests errors 4xx 5xx latency' },
   { to: '/billing', icon: 'ri-bank-card-line', title: 'Billing', keywords: 'plan invoice payment upgrade usage' },
   { to: '/team', icon: 'ri-team-line', title: 'Team', keywords: 'members invite roles admin developer' },

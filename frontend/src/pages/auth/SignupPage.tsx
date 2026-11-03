@@ -1,19 +1,12 @@
 import { useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { PWD_RULES } from '@/components/PasswordRules'
 import FoidWordmark from '@/components/FoidWordmark'
 
 /* ── NIN rule — mirrors backend/app/schemas/auth.py (exactly 11 digits) ── */
 const NIN_LENGTH = 11
 
-/* ── Password strength rules — mirrors backend/app/schemas/auth.py ── */
-const PWD_RULES = [
-  { key: 'length',  label: 'At least 8 characters',       test: (p: string) => p.length >= 8 },
-  { key: 'upper',   label: 'One uppercase letter (A–Z)',   test: (p: string) => /[A-Z]/.test(p) },
-  { key: 'lower',   label: 'One lowercase letter (a–z)',   test: (p: string) => /[a-z]/.test(p) },
-  { key: 'number',  label: 'One number (0–9)',              test: (p: string) => /[0-9]/.test(p) },
-  { key: 'special', label: 'One special character (!@#…)', test: (p: string) => /[^A-Za-z0-9]/.test(p) },
-] as const
 
 export default function SignupPage() {
   const navigate = useNavigate()

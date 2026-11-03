@@ -12,6 +12,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<LoginResult>
   completeMfa: (mfaToken: string, code: string) => Promise<AuthResult>
   loginWithPasskey: () => Promise<AuthResult>
+  /** Sign in with tokens issued elsewhere (the Continue with FOID popup's email code / Save to FOID). */
+  adoptTokens: (access: string, refresh: string) => Promise<void>
   signup: (userData: {
     firstName: string
     lastName: string
@@ -191,6 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       completeMfa,
       loginWithPasskey,
+      adoptTokens: adopt,
       signup,
       logout,
       refreshUser,

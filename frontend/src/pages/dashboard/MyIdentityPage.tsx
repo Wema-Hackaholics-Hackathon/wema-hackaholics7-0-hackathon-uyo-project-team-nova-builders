@@ -125,7 +125,7 @@ function StepAction({
 }
 
 /* ── NIN verification: confirm names as on the NIN + date of birth ──── */
-function NinVerifyAction({ user, onSuccess }: { user: User | null; onSuccess: () => void }) {
+export function NinVerifyAction({ user, onSuccess }: { user: User | null; onSuccess: () => void }) {
   const [firstName, setFirstName]   = useState(user?.first_name ?? '')
   const [middleName, setMiddleName] = useState(user?.middle_name ?? '')
   const [lastName, setLastName]     = useState(user?.last_name ?? '')

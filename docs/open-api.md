@@ -250,3 +250,11 @@ Common codes: `missing_api_key`, `invalid_api_key`, `live_mode_disabled`, `inval
 - **Idempotency**: send `Idempotency-Key` on POSTs; a retry with the same key and body replays the first
   response (`Idempotent-Replayed: true`); a different body → `409 idempotency_key_reused`.
 - **Rate limits**: 120 req/min per key (30/min for document uploads).
+
+## 10. Continue with FOID (sign-in)
+
+People already verified on FOID can share it with one tap: register an app in Console → **Sign-in apps**, add the
+`@foid/react` button, and exchange the returned code on your server at `POST /api/open/v1/oauth/token`
+(client secret or `private_key_jwt`, PKCE required, code valid once for 60 s). The token call appears in Request
+logs; shares appear in the person's Connected apps as "Continue with FOID". Full guide:
+[continue-with-foid.md](continue-with-foid.md#developer-guide). SDKs: `sdks/`.
