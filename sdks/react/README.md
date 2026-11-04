@@ -20,7 +20,7 @@ import { FoidProvider, ContinueWithFoid } from '@foid/react'
 
 export default function SignUp() {
   return (
-    <FoidProvider clientId="foid_app_test_…" foidUrl="https://app.foid.ng">
+    <FoidProvider clientId="foid_app_test_…" foidUrl="https://usefoid.pages.dev">
       <ContinueWithFoid
         scope="identity contact"
         onSuccess={({ code, codeVerifier }) =>
@@ -57,7 +57,7 @@ const { code, codeVerifier } = await signInWithFoid({ clientId: 'foid_app_test_�
 
 | | |
 |---|---|
-| `<FoidProvider clientId foidUrl>` | Config for everything below. `foidUrl` defaults to `https://app.foid.ng`. |
+| `<FoidProvider clientId foidUrl>` | Config for everything below. `foidUrl` defaults to `https://usefoid.pages.dev`. |
 | `<ContinueWithFoid>` | The button. Props: `onSuccess`, `onError`, `scope`, `nonce`, `state`, `codeChallenge`, `redirectUri`, `text` (`continue_with` · `signin_with` · `signup_with` · `verify_with`), `theme` (`filled` · `outline`), `size` (`large` · `medium` · `small`), `width`, `disabled`, `className`, `style` |
 | `useFoidLogin(options)` | Returns `login()` (call from a click) with `login.pending` |
 | `signInWithFoid(options)` | Framework-free popup sign-in → `{ code, state, codeVerifier }` |

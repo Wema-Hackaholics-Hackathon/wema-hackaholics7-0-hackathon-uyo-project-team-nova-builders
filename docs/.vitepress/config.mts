@@ -110,6 +110,10 @@ export default defineConfig({
       { text: 'API', link: '/api/', activeMatch: '/api/' },
       { text: 'Help', link: '/help/', activeMatch: '/help/' },
       { text: 'Changelog', link: '/changelog' },
+      { text: 'Open FOID', items: [
+        { text: 'Business console', link: 'https://admin-foid.pages.dev' },
+        { text: 'FOID app', link: 'https://usefoid.pages.dev' },
+      ] },
     ],
     sidebar: {
       '/guide/': developers,

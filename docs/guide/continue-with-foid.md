@@ -59,7 +59,7 @@ import { FoidProvider, ContinueWithFoid } from '@foid/react'
 
 export default function App() {
   return (
-    <FoidProvider clientId="foid_app_test_…" foidUrl="https://app.foid.ng">
+    <FoidProvider clientId="foid_app_test_…" foidUrl="https://usefoid.pages.dev">
       <ContinueWithFoid
         scope="identity contact"
         onSuccess={({ code, codeVerifier }) =>
@@ -93,7 +93,7 @@ import { Foid } from '@foid/node'
 const foid = new Foid({
   clientId: process.env.FOID_CLIENT_ID,
   clientSecret: process.env.FOID_CLIENT_SECRET,
-  baseUrl: 'https://api.foid.ng',
+  baseUrl: 'https://foid-iy7u.onrender.com',
 })
 
 const app = express()
@@ -114,7 +114,7 @@ from foid import Foid
 
 foid = Foid(client_id=os.environ["FOID_CLIENT_ID"],
             client_secret=os.environ["FOID_CLIENT_SECRET"],
-            base_url="https://api.foid.ng")
+            base_url="https://foid-iy7u.onrender.com")
 app = FastAPI()
 
 @app.post("/auth/foid")
@@ -125,7 +125,7 @@ def sign_in(body: dict):
 ```
 
 ```bash [curl]
-curl https://api.foid.ng/api/open/v1/oauth/token \
+curl https://foid-iy7u.onrender.com/api/open/v1/oauth/token \
   -u "$FOID_CLIENT_ID:$FOID_CLIENT_SECRET" \
   -d grant_type=authorization_code \
   -d code="$CODE" \

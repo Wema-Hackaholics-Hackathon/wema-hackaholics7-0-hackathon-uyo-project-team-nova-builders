@@ -48,7 +48,7 @@ Then depend on the file: `"@foid/node": "file:vendor/foid-node-0.1.0.tgz"` in `p
 
 ## Configuration
 
-The server SDKs default to the hosted API at `https://api.foid.ng`. When you run FOID yourself, pass the base URL:
+The server SDKs default to the hosted API at `https://foid-iy7u.onrender.com`. When you run FOID yourself, pass the base URL:
 
 ::: code-group
 
@@ -64,7 +64,7 @@ const foid = new Foid({ apiKey: 'FOID_TEST_…', baseUrl: 'http://localhost:8000
 
 :::
 
-The React SDK defaults to `https://app.foid.ng` for the popup. Pass `foidUrl="http://localhost:5173"` to `<FoidProvider>` locally.
+The React SDK defaults to `https://usefoid.pages.dev` for the popup. Pass `foidUrl="http://localhost:5173"` to `<FoidProvider>` locally.
 
 ## Which credential goes where
 

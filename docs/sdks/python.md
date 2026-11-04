@@ -33,7 +33,7 @@ result = foid.check_nin(number="12345678901", first_name="Ada", last_name="Obi",
 
 ```python
 Foid(*, api_key=None, client_id=None, client_secret=None, private_key_pem=None,
-     key_id=None, base_url="https://api.foid.ng", timeout=15.0)
+     key_id=None, base_url="https://foid-iy7u.onrender.com", timeout=15.0)
 ```
 
 All arguments are keyword-only. Pass only the credentials you use.

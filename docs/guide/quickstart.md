@@ -4,7 +4,7 @@ Make your first FOID API call in about five minutes, in test mode. Nothing here 
 
 ## 1. Create a console account
 
-Sign up in the FOID console with your work email and company name, then enter the 6-digit code FOID emails you. Signing up creates your **organisation**, and the console opens in **Test mode** (an orange strip across the top).
+Sign up in the [FOID console](https://admin-foid.pages.dev) with your work email and company name, then enter the 6-digit code FOID emails you. Signing up creates your **organisation**, and the console opens in **Test mode** (an orange strip across the top).
 
 ## 2. Create a test API key
 
@@ -23,7 +23,7 @@ export FOID_API_KEY=FOID_TEST_…
 ::: code-group
 
 ```bash [curl]
-curl https://api.foid.ng/api/open/v1/ping \
+curl https://foid-iy7u.onrender.com/api/open/v1/ping \
   -H "Authorization: Bearer $FOID_API_KEY"
 ```
 
@@ -48,7 +48,7 @@ console.log(await foid.request('GET', '/ping'))
 { "ok": true, "organisation": "Acme Wallet", "env": "test" }
 ```
 
-Running FOID yourself? Use `http://localhost:8000` as the base URL: `baseUrl` in Node, `base_url` in Python. The SDKs default to `https://api.foid.ng`. To install the SDKs, see [SDKs](/sdks/).
+Running FOID yourself? Use `http://localhost:8000` as the base URL: `baseUrl` in Node, `base_url` in Python. The SDKs default to `https://foid-iy7u.onrender.com`. To install the SDKs, see [SDKs](/sdks/).
 
 ## 4. Run a check
 
@@ -57,7 +57,7 @@ Look up an NIN and match it against the name you hold. In test mode the **last d
 ::: code-group
 
 ```bash [curl]
-curl https://api.foid.ng/api/open/v1/checks/nin \
+curl https://foid-iy7u.onrender.com/api/open/v1/checks/nin \
   -H "Authorization: Bearer $FOID_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

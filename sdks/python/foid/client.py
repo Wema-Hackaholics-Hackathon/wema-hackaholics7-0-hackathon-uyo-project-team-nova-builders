@@ -9,7 +9,7 @@ import httpx
 from .keypair import client_assertion
 from .webhooks import verify_webhook
 
-DEFAULT_BASE_URL = "https://api.foid.ng"
+DEFAULT_BASE_URL = "https://foid-iy7u.onrender.com"
 ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
 

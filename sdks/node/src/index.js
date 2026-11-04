@@ -1,7 +1,7 @@
 // FOID server SDK for Node 18+ (no dependencies). Server-side only — never ship secrets to a browser.
 import { createHash, createHmac, createPrivateKey, generateKeyPairSync, randomBytes, sign, timingSafeEqual } from 'node:crypto'
 
-export const DEFAULT_BASE_URL = 'https://api.foid.ng'
+export const DEFAULT_BASE_URL = 'https://foid-iy7u.onrender.com'
 const ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
 const b64url = (buf) => Buffer.from(buf).toString('base64url')
 

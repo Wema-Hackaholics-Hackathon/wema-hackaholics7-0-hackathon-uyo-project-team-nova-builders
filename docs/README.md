@@ -52,11 +52,20 @@ pnpm preview          # serve the build on :5177
 
 Deploying the static site:
 
-1. Build with **`VITE_FOID_API_URL`** set to the public backend URL (e.g. `VITE_FOID_API_URL=https://api.foid.ng pnpm build`). Without it the playground calls `/api` on the docs host, which only works if that host proxies `/api` to the backend.
+1. Build with **`VITE_FOID_API_URL`** set to the public backend URL (e.g. `VITE_FOID_API_URL=https://foid-iy7u.onrender.com pnpm build`). Without it the playground calls `/api` on the docs host, which only works if that host proxies `/api` to the backend.
 2. On the backend, add the docs origin to **`ALLOWED_ORIGINS`** (CORS) and set **`DOCS_SITE_URL`** to it — the built-in docs test app only accepts sign-ins started from that origin.
 3. Set **`VITE_DOCS_URL`** in the user app and console builds so their *Docs* / *Help* links point to the deployed site.
 4. To turn the playground off on a server: `DOCS_PLAYGROUND=false` on the backend.
-5. Build with **`DOCS_SITE_URL`** set to the public docs URL (e.g. `DOCS_SITE_URL=https://docs.foid.ng pnpm build`) so the links inside `llms.txt`, `llms-full.txt` and the `.md` copies are absolute and reachable.
+5. Build with **`DOCS_SITE_URL`** set to the public docs URL (e.g. `DOCS_SITE_URL=https://docs-foid.pages.dev pnpm build`) so the links inside `llms.txt`, `llms-full.txt` and the `.md` copies are absolute and reachable.
+
+### Where FOID is deployed
+
+| What | URL | Build / runtime settings |
+|---|---|---|
+| Backend (Render) | https://foid-iy7u.onrender.com | `DOCS_SITE_URL=https://docs-foid.pages.dev`, `PUBLIC_APP_URL=https://usefoid.pages.dev`, `CONSOLE_URL=https://admin-foid.pages.dev`, the three sites in `ALLOWED_ORIGINS` |
+| Docs (Cloudflare Pages) | https://docs-foid.pages.dev | `VITE_FOID_API_URL=https://foid-iy7u.onrender.com`, `DOCS_SITE_URL=https://docs-foid.pages.dev` |
+| FOID user app | https://usefoid.pages.dev | `VITE_DOCS_URL=https://docs-foid.pages.dev` |
+| Business console | https://admin-foid.pages.dev | `VITE_DOCS_URL=https://docs-foid.pages.dev` |
 
 ### For AI tools
 

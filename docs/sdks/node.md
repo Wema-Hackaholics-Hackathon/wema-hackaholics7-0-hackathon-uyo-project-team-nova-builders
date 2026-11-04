@@ -37,7 +37,7 @@ const result = await foid.checkNin({
 | `clientSecret` | `oauth.exchange()` for client-secret apps. |
 | `privateKeyPem` | `oauth.exchange()` for key-pair apps. If set, it's used instead of `clientSecret`. |
 | `keyId` | Optional `kid` put in the assertion header. |
-| `baseUrl` | The FOID API host. Default `https://api.foid.ng`; e.g. `http://localhost:8000` locally. |
+| `baseUrl` | The FOID API host. Default `https://foid-iy7u.onrender.com`; e.g. `http://localhost:8000` locally. |
 | `fetch` | A custom `fetch` implementation (for tests, proxies or retries). Default `globalThis.fetch`. |
 
 All options are optional. Pass only the credentials you use.
@@ -179,6 +179,6 @@ Network failures reject with `fetch`'s own `TypeError`. Missing credentials reje
 | `Foid` (also the default export) | client class |
 | `FoidError` | error class |
 | `createPkce`, `generateKeyPair`, `clientAssertion`, `verifyWebhook` | functions |
-| `DEFAULT_BASE_URL` | `"https://api.foid.ng"` |
+| `DEFAULT_BASE_URL` | `"https://foid-iy7u.onrender.com"` |
 
 Types (`FoidOptions`, `FoidSignInResult`, …) are in `index.d.ts`.

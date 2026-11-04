@@ -36,7 +36,7 @@ FOID runs a [Model Context Protocol](https://modelcontextprotocol.io) server tha
 
 | | |
 |---|---|
-| URL | `https://api.foid.ng/mcp` |
+| URL | `https://foid-iy7u.onrender.com/mcp` |
 | Running FOID locally | `http://localhost:8000/mcp` (the backend; it reads the docs from the docs site, so run `pnpm dev` in `docs/` too) |
 | Transport | Streamable HTTP |
 
@@ -53,13 +53,13 @@ FOID runs a [Model Context Protocol](https://modelcontextprotocol.io) server tha
 ::: code-group
 
 ```bash [Claude Code]
-claude mcp add --transport http foid-docs https://api.foid.ng/mcp
+claude mcp add --transport http foid-docs https://foid-iy7u.onrender.com/mcp
 ```
 
 ```json [Cursor — .cursor/mcp.json]
 {
   "mcpServers": {
-    "foid-docs": { "url": "https://api.foid.ng/mcp" }
+    "foid-docs": { "url": "https://foid-iy7u.onrender.com/mcp" }
   }
 }
 ```
@@ -67,7 +67,7 @@ claude mcp add --transport http foid-docs https://api.foid.ng/mcp
 ```json [VS Code — .vscode/mcp.json]
 {
   "servers": {
-    "foid-docs": { "type": "http", "url": "https://api.foid.ng/mcp" }
+    "foid-docs": { "type": "http", "url": "https://foid-iy7u.onrender.com/mcp" }
   }
 }
 ```
@@ -75,7 +75,7 @@ claude mcp add --transport http foid-docs https://api.foid.ng/mcp
 ```json [Windsurf — mcp_config.json]
 {
   "mcpServers": {
-    "foid-docs": { "serverUrl": "https://api.foid.ng/mcp" }
+    "foid-docs": { "serverUrl": "https://foid-iy7u.onrender.com/mcp" }
   }
 }
 ```
@@ -83,15 +83,15 @@ claude mcp add --transport http foid-docs https://api.foid.ng/mcp
 ```json [Other clients (stdio only)]
 {
   "mcpServers": {
-    "foid-docs": { "command": "npx", "args": ["-y", "mcp-remote", "https://api.foid.ng/mcp"] }
+    "foid-docs": { "command": "npx", "args": ["-y", "mcp-remote", "https://foid-iy7u.onrender.com/mcp"] }
   }
 }
 ```
 
 :::
 
-- **Claude (desktop and claude.ai):** Settings → Connectors → **Add custom connector**, name it *FOID Docs*, URL `https://api.foid.ng/mcp`.
-- **ChatGPT:** Settings → Apps & Connectors → Advanced settings → turn on **Developer mode**, then **Create** a connector with the URL `https://api.foid.ng/mcp` and no authentication.
+- **Claude (desktop and claude.ai):** Settings → Connectors → **Add custom connector**, name it *FOID Docs*, URL `https://foid-iy7u.onrender.com/mcp`.
+- **ChatGPT:** Settings → Apps & Connectors → Advanced settings → turn on **Developer mode**, then **Create** a connector with the URL `https://foid-iy7u.onrender.com/mcp` and no authentication.
 
 Claude and ChatGPT connect from their own servers, so they need the public `https://` URL. Editor tools like Claude Code, Cursor and VS Code run on your machine and can use `http://localhost:8000/mcp`.
 
@@ -100,7 +100,7 @@ Then just ask, for example: *"Using the FOID docs, add Continue with FOID to my 
 ### Check it's working
 
 ```bash
-curl -s https://api.foid.ng/mcp -H 'Content-Type: application/json' \
+curl -s https://foid-iy7u.onrender.com/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_foid_docs","arguments":{"query":"verify webhook signature"}}}'
 ```
 

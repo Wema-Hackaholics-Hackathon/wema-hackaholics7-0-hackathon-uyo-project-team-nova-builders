@@ -26,7 +26,7 @@ You can use more than one. Everything about a person lands on the same [subject]
 
 ## What you need
 
-- A **FOID console** account. Sign up at the console, verify your email, and you get an organisation with **test mode** ready to use.
+- A **FOID console** account. Sign up at [the console](https://admin-foid.pages.dev), verify your email, and you get an organisation with **test mode** ready to use.
 - A **test API key** for the Open API (checks, verifications, subjects).
 - For Continue with FOID, a **sign-in app** (client ID plus client secret or key pair).
 - Optionally, a **webhook endpoint** so FOID can tell you when things finish.

@@ -21,7 +21,7 @@ import { FoidProvider, ContinueWithFoid } from '@foid/react'
 
 export default function SignUp() {
   return (
-    <FoidProvider clientId="foid_app_test_…" foidUrl="https://app.foid.ng">
+    <FoidProvider clientId="foid_app_test_…" foidUrl="https://usefoid.pages.dev">
       <ContinueWithFoid
         scope="identity contact"
         onSuccess={({ code, codeVerifier }) =>
@@ -41,13 +41,13 @@ export default function SignUp() {
 ## `<FoidProvider>`
 
 ```jsx
-<FoidProvider clientId="foid_app_live_…" foidUrl="https://app.foid.ng">…</FoidProvider>
+<FoidProvider clientId="foid_app_live_…" foidUrl="https://usefoid.pages.dev">…</FoidProvider>
 ```
 
 | Prop | |
 |---|---|
 | `clientId` | Required. Your sign-in app's public client ID. |
-| `foidUrl` | The FOID web app that hosts the popup. Default `https://app.foid.ng`; `http://localhost:5173` when running FOID locally. |
+| `foidUrl` | The FOID web app that hosts the popup. Default `https://usefoid.pages.dev`; `http://localhost:5173` when running FOID locally. |
 
 Put it once near the root (or around the part of the page with the button). `useFoidLogin` and `<ContinueWithFoid>` throw if they're used outside it.
 
@@ -105,7 +105,7 @@ button.addEventListener('click', async () => {
   try {
     const { code, state, codeVerifier } = await signInWithFoid({
       clientId: 'foid_app_test_…',
-      foidUrl: 'https://app.foid.ng',
+      foidUrl: 'https://usefoid.pages.dev',
       scope: 'identity',
     })
     await sendToServer(code, codeVerifier)

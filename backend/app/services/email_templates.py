@@ -196,7 +196,7 @@ def password_reset(*, first_name: str, otp: str, to: str) -> tuple[str, str]:
 
 # ── Template 3: Welcome / account confirmed ──────────────────────────────────
 
-def welcome(*, first_name: str, to: str, dashboard_url: str = "https://app.foid.ng/dashboard") -> tuple[str, str]:
+def welcome(*, first_name: str, to: str, dashboard_url: str = "https://usefoid.pages.dev/dashboard") -> tuple[str, str]:
     subject = f"Welcome to FOID, {first_name}! Your identity credential is ready"
     body = (
         _h1(f"Welcome to FOID, {first_name}! 🎉")

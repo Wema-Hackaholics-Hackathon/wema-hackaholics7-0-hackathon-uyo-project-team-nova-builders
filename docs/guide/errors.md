@@ -73,7 +73,7 @@ Use something unique to the action, such as `onboard-<your user id>` or a UUID y
 ::: code-group
 
 ```bash [curl]
-curl https://api.foid.ng/api/open/v1/verifications \
+curl https://foid-iy7u.onrender.com/api/open/v1/verifications \
   -H "Authorization: Bearer $FOID_API_KEY" \
   -H "Idempotency-Key: onboard-cust_1001" \
   -H "Content-Type: application/json" \

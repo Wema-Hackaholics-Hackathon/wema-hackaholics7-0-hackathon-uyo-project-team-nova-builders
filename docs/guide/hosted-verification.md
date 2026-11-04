@@ -9,7 +9,7 @@ The person does **not** need a FOID account. If they have one, the page offers "
 ::: code-group
 
 ```bash [curl]
-curl https://api.foid.ng/api/open/v1/verifications \
+curl https://foid-iy7u.onrender.com/api/open/v1/verifications \
   -H "Authorization: Bearer $FOID_API_KEY" \
   -H "Idempotency-Key: onboard-cust_1001" \
   -H "Content-Type: application/json" \
@@ -64,12 +64,12 @@ The response (`201`) is the verification, including `id`, `status: "pending"`, `
 
 ## 2. Send the person to it
 
-**Redirect, link or QR code.** Open `hosted_url`, e.g. `https://app.foid.ng/verify/vs_…`.
+**Redirect, link or QR code.** Open `hosted_url`, e.g. `https://usefoid.pages.dev/verify/vs_…`.
 
 **Embed it in your web page.** `foid-verify.js` opens the same flow in a modal over your page:
 
 ```html
-<script src="https://app.foid.ng/foid-verify.js"></script>
+<script src="https://usefoid.pages.dev/foid-verify.js"></script>
 <script>
   // client_token comes from YOUR server (the create call above)
   FoidVerify.open({

@@ -2,7 +2,7 @@
 // The popup returns a one-time `code`; send { code, codeVerifier } to YOUR server, which exchanges it with
 // @foid/node or the foid Python SDK. Never exchange in the browser — that needs your client secret.
 
-export const DEFAULT_FOID_URL = 'https://app.foid.ng'
+export const DEFAULT_FOID_URL = 'https://usefoid.pages.dev'
 
 export class FoidSignInError extends Error {
   constructor(code, message) { super(message || code); this.code = code }

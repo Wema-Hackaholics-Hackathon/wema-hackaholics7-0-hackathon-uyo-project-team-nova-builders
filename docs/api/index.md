@@ -8,7 +8,7 @@ Every endpoint, with real example responses: **[Endpoints →](./reference)**
 
 | | |
 |---|---|
-| Production | `https://api.foid.ng/api/open/v1` |
+| Production | `https://foid-iy7u.onrender.com/api/open/v1` |
 | Local (running FOID yourself) | `http://localhost:8000/api/open/v1` |
 
 ## Authentication

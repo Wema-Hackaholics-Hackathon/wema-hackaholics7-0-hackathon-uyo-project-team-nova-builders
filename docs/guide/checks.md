@@ -7,7 +7,7 @@ Server-to-server lookups for when you already hold the number **and the person's
 ::: code-group
 
 ```bash [curl]
-curl https://api.foid.ng/api/open/v1/checks/nin \
+curl https://foid-iy7u.onrender.com/api/open/v1/checks/nin \
   -H "Authorization: Bearer $FOID_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -113,7 +113,7 @@ Each check also sends a `check.completed` [webhook](./webhooks) with the same re
 `POST /checks/nin-document` reads the NIN from a photo of an NIN slip or NIMC card (OCR), then looks it up like `/checks/nin`. The face on the document isn't used. It's a `multipart/form-data` upload:
 
 ```bash
-curl https://api.foid.ng/api/open/v1/checks/nin-document \
+curl https://foid-iy7u.onrender.com/api/open/v1/checks/nin-document \
   -H "Authorization: Bearer $FOID_API_KEY" \
   -F file=@nin-slip.jpg \
   -F consent_obtained=true \

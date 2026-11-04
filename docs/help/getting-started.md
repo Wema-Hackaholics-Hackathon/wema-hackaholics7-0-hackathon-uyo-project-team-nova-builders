@@ -4,7 +4,7 @@ You need an email address you can open and your 11-digit NIN.
 
 ## Sign up
 
-1. Open FOID and choose **Create your FOID** (on the log-in page), or go straight to the sign-up page.
+1. Open [FOID](https://usefoid.pages.dev) and choose **Create your FOID** (on the log-in page), or go straight to the sign-up page.
 2. Fill in **First name**, **Middle name** (optional), **Last name**, your **NIN**, **Email address**, **Password** and **Confirm Password**.
    - Use your names **exactly as they appear on your NIN** — FOID checks them against the NIN record later.
    - As you type your password, a checklist shows what's still missing. See [password rules](./security#your-password).
